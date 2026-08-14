@@ -3,8 +3,15 @@ import pandas as pd
 import yfinance as yf
 
 
-def fetch_fx_data(ticker="GC=F", period="2y"):
-    """Fetches historical daily close data for Gold Futures (GC=F) via Yahoo Finance."""
+TICKERS = {
+    "Gold Futures": "GC=F",
+    "EUR/USD": "EURUSD=X",
+    "GBP/JPY": "GBPJPY=X",
+}
+
+
+def fetch_price_data(ticker, period="2y"):
+    """Fetches historical daily close data for a given ticker via Yahoo Finance."""
     print(f"Fetching data for {ticker}...")
     data = yf.download(ticker, period=period)
 
@@ -46,17 +53,25 @@ def calculate_rolling_metrics(df, window=126, risk_free_rate=0.0):
     return df
 
 
-if __name__ == "__main__":
-    # Using Gold Futures (GC=F) as the pilot asset for the risk engine pipeline
+def run_pipeline(asset_name, ticker, risk_free_rate=0.04):
+    """Runs the full fetch -> process pipeline for a single asset and prints a snapshot."""
     try:
-        fx_data = fetch_fx_data(ticker="GC=F", period="2y")
-        processed_data = calculate_rolling_metrics(fx_data, risk_free_rate=0.04)
+        price_data = fetch_price_data(ticker=ticker, period="2y")
+        processed_data = calculate_rolling_metrics(price_data, risk_free_rate=risk_free_rate)
 
-        # Print snapshot with perfectly matching string indices
-        print("\n--- Quantitative Pipeline Snapshot ---")
+        print(f"\n--- {asset_name} ({ticker}) Quantitative Pipeline Snapshot ---")
         print(
             processed_data[["Close", "Rolling_Sharpe", "Rolling_VaR_95"]].tail()
         )
+        return processed_data
 
     except Exception as e:
-        print(f"\nExecution Pipeline Failed: {str(e)}")
+        print(f"\nExecution Pipeline Failed for {asset_name} ({ticker}): {str(e)}")
+        return None
+
+
+if __name__ == "__main__":
+    # Run the risk pipeline across Gold Futures and two major FX pairs
+    results = {}
+    for asset_name, ticker in TICKERS.items():
+        results[asset_name] = run_pipeline(asset_name, ticker)
