@@ -78,6 +78,12 @@ For real data, see §4.
 Provides variance, full covariance paths, correlation, and a
 portfolio variance path that avoids materialising every matrix.
 
+<figure>
+<img src="docs/figures/DEMO_01-volatility.png" alt="Three volatility estimates on the same portfolio. The rolling 252-day standard deviation steps when a shock enters and leaves the window; EWMA and GARCH respond on the day." width="100%">
+<figcaption><sub>Three volatility estimates on the same portfolio. The rolling 252-day standard deviation steps when a shock enters and leaves the window; EWMA and GARCH respond on the day.</sub></figcaption>
+</figure>
+
+
 ### GARCH(1,1) — `fxrisk/models/garch.py`
 
     sigma2_t = omega + alpha * eps_{t-1}^2 + beta * sigma2_{t-1}
@@ -163,6 +169,12 @@ nothing about how bad the tail gets once you are in it.
 The Gaussian estimator is included specifically as a baseline that
 should fail. Demonstrating that is the point.
 
+<figure>
+<img src="docs/figures/DEMO_02-var-breaches.png" alt="Realised daily returns against the 99% GARCH-t VaR line. The line widens through volatile periods, and the 23 breaches are scattered rather than bunched." width="100%">
+<figcaption><sub>Realised daily returns against the 99% GARCH-t VaR line. The line widens through volatile periods, and the 23 breaches are scattered rather than bunched.</sub></figcaption>
+</figure>
+
+
 ### Backtesting — `fxrisk/risk/backtesting.py`
 
 - **Kupiec (1995)** unconditional coverage — right *number* of breaches?
@@ -197,6 +209,12 @@ times per 250 days and would be scored "red" for working properly.
 Other confidence levels return `n/a` rather than a misleading
 colour.
 
+<figure>
+<img src="docs/figures/DEMO_05-backtest-rates.png" alt="Breach rate per estimator at 99% against the 1% target. The two conditional models land near the target; the historical and Gaussian baselines breach roughly twice as often as they should." width="100%">
+<figcaption><sub>Breach rate per estimator at 99% against the 1% target. The two conditional models land near the target; the historical and Gaussian baselines breach roughly twice as often as they should.</sub></figcaption>
+</figure>
+
+
 ### Pairwise correlation — `fxrisk/risk/correlation.py`
 
 `pairwise_table` puts three estimates of every instrument pair side
@@ -204,6 +222,11 @@ by side: the full-sample Pearson correlation, the EWMA value at the
 end of the sample, and the DCC path's last / mean / min / max. The
 column that matters is `dcc_range` — max minus min — because that is
 precisely what the single sample number averages away.
+
+<figure>
+<img src="docs/figures/DEMO_03-correlation.png" alt="Pairwise DCC conditional correlation against the unconditional value (dotted). Every pair spends most of the sample away from its own long-run average." width="100%">
+<figcaption><sub>Pairwise DCC conditional correlation against the unconditional value (dotted). Every pair spends most of the sample away from its own long-run average.</sub></figcaption>
+</figure>
 
 `correlation_stress` splits the sample on portfolio-average return
 and reports each pair's mean conditional correlation on the worst
@@ -235,6 +258,12 @@ with the Sharpe printed beside it.
 `sharpe_ratio` also returns the un-annualised value, so the
 sqrt-time assumption behind annualisation stays visible rather than
 buried.
+
+<figure>
+<img src="docs/figures/DEMO_04-rolling-sharpe.png" alt="Rolling 126-day Sharpe against the full-sample value. The single number sits at -0.21 while the rolling estimate ranges from -4.4 to +3.9." width="100%">
+<figcaption><sub>Rolling 126-day Sharpe against the full-sample value. The single number sits at -0.21 while the rolling estimate ranges from -4.4 to +3.9.</sub></figcaption>
+</figure>
+
 
 <figure>
 <img src="docs/diagrams/07-sharpe.svg" alt="An annual risk-free rate subtracted from daily returns is a factor-252 error; and a zero downside threshold misses returns that are positive but below the risk-free rate." width="100%">
@@ -378,7 +407,10 @@ fx-risk-engine/
 │       ├── correlation.py       # pairwise static vs EWMA vs DCC
 │       ├── backtesting.py       # Kupiec, Christoffersen, Basel
 │       └── stress.py            # dated historical scenarios
-├── docs/diagrams/               # the figures in this README
+├── docs/
+│   ├── diagrams/                # hand-drawn SVG: how the pieces fit
+│   ├── figures/                 # generated from model output
+│   └── make_figures.py          # regenerates docs/figures/
 ├── tests/test_risk_engine.py    # 56 tests
 └── quant-portfolio/             # vendored, see §7
 ```
