@@ -85,3 +85,33 @@ STRESS_RESCALE_MISSING = True
 
 RESULTS_DIR = "results"
 SAVE_RESULTS = True
+
+# ============================================================
+# DCC (walk-forward, used for portfolio VaR)
+# ============================================================
+
+# DCC refitting is far more expensive than univariate GARCH: each
+# fit runs one MLE per asset plus a likelihood optimisation over the
+# whole window. Semi-annual refits keep the backtest tractable while
+# staying strictly walk-forward.
+DCC_REFIT_EVERY = 126
+DCC_MIN_OBS = 400
+
+# ============================================================
+# PERFORMANCE
+# ============================================================
+
+# Annual risk-free rate used for Sharpe and Sortino. This is an
+# ANNUAL figure and is de-annualised internally before being
+# subtracted from periodic returns.
+#
+# A single constant across a long sample is a real simplification:
+# short rates went from near zero to around five per cent over
+# 2017-2026, and every Sharpe below is measured against this one
+# number. Set it to the average over your actual sample window
+# rather than today's spot rate.
+RISK_FREE_RATE = 0.04
+
+# ~6 months. Short enough to show regime shifts, long enough that
+# the estimate is not pure noise.
+ROLLING_SHARPE_WINDOW = 126

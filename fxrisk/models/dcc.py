@@ -213,3 +213,125 @@ def fit_dcc(
         loglikelihood=float(-res2.fun),
         converged=bool(res2.success),
     )
+
+
+# ===============================================================
+# Walk-forward DCC
+# ===============================================================
+
+def rolling_dcc_covariance(
+    returns: pd.DataFrame,
+    window: int = 750,
+    refit_every: int = 126,
+    dist: str = "t",
+    min_obs: int = 400,
+) -> dict[pd.Timestamp, pd.DataFrame]:
+    """
+    Walk-forward one-step-ahead DCC covariance forecasts.
+
+    `fit_dcc` is an IN-SAMPLE estimator: it uses the whole panel, so
+    its correlation path cannot be used for a VaR backtest without
+    leaking the future into every historical date. This function is
+    the honest version - at each date t the parameters and the
+    recursions have only seen returns strictly before t.
+
+    Both layers are advanced daily and refitted periodically:
+
+      univariate  sigma2_{i,t} = omega_i + alpha_i eps^2 + beta_i sigma2
+      correlation Q_t = (1-a-b) Qbar + a z_{t-1} z_{t-1}' + b Q_{t-1}
+
+    Refitting is expensive - each fit runs n_assets univariate MLEs
+    plus a bivariate-likelihood optimisation over the whole window -
+    so `refit_every` defaults to 126 (roughly semi-annual) rather
+    than the 21 used for univariate GARCH. Between refits the
+    parameters are stale but never forward-looking, which is the
+    trade a desk actually makes.
+
+    Returns
+    -------
+    dict keyed by date -> covariance matrix forecast for that date.
+    """
+    df = returns.replace([np.inf, -np.inf], np.nan).dropna()
+    n, k = df.shape
+    if n <= min_obs:
+        raise ValueError(f"need more than min_obs={min_obs} rows, got {n}")
+    if k < 2:
+        raise ValueError("DCC needs at least two assets")
+
+    values = df.to_numpy()
+    cols = list(df.columns)
+
+    out: dict[pd.Timestamp, pd.DataFrame] = {}
+
+    params = None          # per-asset (omega, alpha, beta, mu)
+    a = b = None
+    qbar = None
+    sigma2 = None          # current per-asset variance forecast
+    q = None               # current Q matrix
+    last_fit = -10**9
+    fit_failures = 0
+
+    for t in range(min_obs, n):
+        if params is None or (t - last_fit) >= refit_every:
+            start = max(0, t - window)
+            try:
+                fitted = fit_dcc(df.iloc[start:t], dist=dist, mean="zero")
+                params = [
+                    (
+                        fitted.univariate[c].omega,
+                        fitted.univariate[c].alpha,
+                        fitted.univariate[c].beta,
+                        fitted.univariate[c].mu,
+                    )
+                    for c in cols
+                ]
+                a, b = fitted.a, fitted.b
+                qbar = fitted.unconditional_correlation.to_numpy()
+
+                sigma2 = np.array(
+                    [
+                        float(fitted.univariate[c].conditional_variance.iloc[-1])
+                        for c in cols
+                    ]
+                )
+                last_date = list(fitted.correlations.keys())[-1]
+                q = fitted.correlations[last_date].to_numpy() * 1.0
+
+                # Advance both recursions to produce the forecast for t.
+                r_prev = values[t - 1]
+                eps = np.array([r_prev[i] - params[i][3] for i in range(k)])
+                z_prev = eps / np.sqrt(sigma2)
+                sigma2 = np.array(
+                    [
+                        params[i][0] + params[i][1] * eps[i] ** 2 + params[i][2] * sigma2[i]
+                        for i in range(k)
+                    ]
+                )
+                q = (1 - a - b) * qbar + a * np.outer(z_prev, z_prev) + b * q
+                last_fit = t
+            except Exception:
+                fit_failures += 1
+                if params is None:
+                    continue
+
+        # ---- forecast for date t, from information through t-1 ----
+        d = np.sqrt(np.diag(q))
+        r_mat = q / np.outer(d, d)
+        np.fill_diagonal(r_mat, 1.0)
+        sig = np.sqrt(sigma2)
+        h = np.outer(sig, sig) * r_mat
+        out[df.index[t]] = pd.DataFrame(h, index=cols, columns=cols)
+
+        # ---- advance one step using the return actually observed at t ----
+        r_t = values[t]
+        eps = np.array([r_t[i] - params[i][3] for i in range(k)])
+        z_t = eps / np.sqrt(sigma2)
+        sigma2 = np.array(
+            [
+                params[i][0] + params[i][1] * eps[i] ** 2 + params[i][2] * sigma2[i]
+                for i in range(k)
+            ]
+        )
+        q = (1 - a - b) * qbar + a * np.outer(z_t, z_t) + b * q
+
+    return out

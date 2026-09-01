@@ -33,8 +33,15 @@ from fxrisk.models.ewma import (
 from fxrisk.models.garch import fit_garch
 from fxrisk.risk.backtesting import backtest_var, compare_models
 from fxrisk.risk.stress import SCENARIOS, run_all_scenarios, scenario_table, stress_vs_var
+from fxrisk.risk.correlation import correlation_stress, pairwise_table
+from fxrisk.risk.performance import (
+    per_asset_performance,
+    performance_summary,
+    rolling_sharpe,
+)
 from fxrisk.risk.var import (
     component_var,
+    dcc_var_series,
     ewma_var_series,
     garch_var_series,
     portfolio_var_from_covariance,
@@ -175,6 +182,7 @@ def main() -> int:
     print(fit.summary())
 
     # ---------------------------------------------------------
+    dcc = None
     if not args.skip_dcc and len(assets) >= 2:
         _header("DCC-GARCH")
         try:
@@ -188,6 +196,47 @@ def main() -> int:
             print("  correlation matrix cannot see.")
         except Exception as exc:  # noqa: BLE001
             print(f"  DCC estimation failed: {exc}")
+            dcc = None
+
+    # ---------------------------------------------------------
+    _header("PAIRWISE CORRELATION")
+
+    pairs = pairwise_table(returns, dcc=dcc, lam=config.EWMA_LAMBDA)
+    print(pairs.round(3).to_string())
+    print()
+    print("  sample    = one number for the whole history")
+    print("  ewma      = current regime")
+    print("  dcc_range = how much the single sample number averages away")
+
+    if dcc is not None:
+        try:
+            stress_corr = correlation_stress(returns, dcc, quantile=0.05)
+            print(f"\nCorrelation on the worst 5% of days "
+                  f"({stress_corr.attrs['n_stressed_days']} days) vs the rest:")
+            print(stress_corr.round(3).to_string())
+            print("\n  A positive 'increase' means diversification weakens")
+            print("  exactly when it is needed. That is the case for using a")
+            print("  conditional correlation model rather than a static one.")
+        except ValueError as exc:
+            print(f"  correlation stress split unavailable: {exc}")
+
+    # ---------------------------------------------------------
+    _header("RISK-ADJUSTED PERFORMANCE")
+
+    perf = performance_summary(portfolio, risk_free_rate=config.RISK_FREE_RATE)
+    print("Equal-weight portfolio:")
+    print(perf.summary())
+
+    print("\nPer instrument:")
+    print(per_asset_performance(
+        returns, risk_free_rate=config.RISK_FREE_RATE).round(4).to_string())
+
+    rs = rolling_sharpe(portfolio, window=config.ROLLING_SHARPE_WINDOW,
+                        risk_free_rate=config.RISK_FREE_RATE).dropna()
+    if len(rs):
+        print(f"\nRolling {config.ROLLING_SHARPE_WINDOW}-day Sharpe: "
+              f"min {rs.min():.2f}   mean {rs.mean():.2f}   max {rs.max():.2f}")
+        print("  The spread is the point: a single full-sample Sharpe hides it.")
 
     # ---------------------------------------------------------
     _header("VaR BACKTESTING")
@@ -221,6 +270,23 @@ def main() -> int:
                 refit_every=config.GARCH_REFIT_EVERY,
                 min_obs=config.GARCH_MIN_OBS,
             )["var"]
+
+        if not args.skip_dcc and len(assets) >= 2:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    var_frames["dcc_portfolio"] = dcc_var_series(
+                        returns,
+                        weights,
+                        confidence=confidence,
+                        dist=config.GARCH_DIST,
+                        nu=fit.nu,
+                        window=config.GARCH_WINDOW,
+                        refit_every=config.DCC_REFIT_EVERY,
+                        min_obs=config.DCC_MIN_OBS,
+                    )["var"]
+            except Exception as exc:  # noqa: BLE001
+                print(f"  dcc_portfolio unavailable: {exc}")
 
         level_results = []
         for name, series in var_frames.items():

@@ -621,3 +621,207 @@ def test_vwap_weights_by_tick_count():
     )
     out = rolling_vwap(bars, window=2)
     assert out.iloc[-1] == pytest.approx((1.0 * 1 + 2.0 * 99) / 100)
+
+
+# ---------------------------------------------------------------
+# Walk-forward DCC and DCC-driven VaR
+# ---------------------------------------------------------------
+
+def _panel(n=900, seed=31, rho_shift=True):
+    """Two-asset panel with a deliberate correlation regime change."""
+    rng = np.random.default_rng(seed)
+    f = rng.normal(0, 0.008, n)
+    a = np.empty(n)
+    b = np.empty(n)
+    for t in range(n):
+        # Correlation to the common factor jumps halfway through.
+        load = 0.9 if (rho_shift and t > n // 2) else 0.2
+        a[t] = load * f[t] + rng.normal(0, 0.006)
+        b[t] = load * f[t] + rng.normal(0, 0.006)
+    return pd.DataFrame(
+        {"A": a, "B": b}, index=pd.bdate_range("2015-01-01", periods=n)
+    )
+
+
+def test_rolling_dcc_is_walk_forward():
+    """
+    Truncating the sample must not change any covariance forecast
+    already made. fit_dcc is in-sample by construction; this is the
+    version a backtest may use.
+    """
+    from fxrisk.models.dcc import rolling_dcc_covariance
+
+    df = _panel(n=800, seed=5)
+    full = rolling_dcc_covariance(df, window=400, refit_every=200, dist="normal", min_obs=400)
+    short = rolling_dcc_covariance(
+        df.iloc[:700], window=400, refit_every=200, dist="normal", min_obs=400
+    )
+
+    shared = [d for d in short if d in full]
+    assert len(shared) > 50
+    for d in shared:
+        np.testing.assert_allclose(
+            full[d].to_numpy(), short[d].to_numpy(), rtol=1e-10, atol=1e-14
+        )
+
+
+def test_rolling_dcc_matrices_are_psd_and_symmetric():
+    from fxrisk.models.dcc import rolling_dcc_covariance
+
+    df = _panel(n=700, seed=8)
+    path = rolling_dcc_covariance(df, window=350, refit_every=200, dist="normal", min_obs=400)
+    assert len(path) > 100
+    for h in list(path.values())[::25]:
+        m = h.to_numpy()
+        assert np.allclose(m, m.T)
+        assert np.linalg.eigvalsh(m).min() > -1e-12
+
+
+def test_dcc_var_series_responds_to_correlation_regime():
+    """
+    The reason DCC is wired into VaR at all: when constituents become
+    more correlated, portfolio VaR must rise even if each asset's own
+    volatility is unchanged.
+    """
+    from fxrisk.risk.var import dcc_var_series
+
+    df = _panel(n=900, seed=11, rho_shift=True)
+    w = pd.Series([0.5, 0.5], index=["A", "B"])
+
+    out = dcc_var_series(
+        df, w, confidence=0.99, dist="normal", window=400, refit_every=150, min_obs=400
+    )
+    assert {"var", "expected_shortfall", "volatility"} <= set(out.columns)
+    assert (out["var"] > 0).all()
+    assert (out["expected_shortfall"] >= out["var"]).all()
+
+    # Correlation jumps at the midpoint; the later half must carry
+    # materially more portfolio risk.
+    first = out["volatility"].iloc[: len(out) // 3].mean()
+    last = out["volatility"].iloc[-len(out) // 3 :].mean()
+    assert last > first * 1.15, f"VaR did not react to the regime shift ({first:.5f} -> {last:.5f})"
+
+
+def test_dcc_var_rejects_mismatched_weights():
+    from fxrisk.risk.var import dcc_var_series
+
+    df = _panel(n=600, seed=3)
+    with pytest.raises(ValueError, match="weights length"):
+        dcc_var_series(df, np.array([0.3, 0.3, 0.4]), min_obs=400)
+
+
+# ---------------------------------------------------------------
+# Performance / Sharpe
+# ---------------------------------------------------------------
+
+def test_sharpe_deannualises_the_risk_free_rate():
+    """
+    The classic bug: subtracting an annual 4% from daily returns.
+    With a constant daily return exactly equal to the de-annualised
+    risk-free rate, excess return is zero and Sharpe must be ~0.
+    """
+    from fxrisk.risk.performance import deannualise, sharpe_ratio
+
+    rf = 0.04
+    daily = deannualise(rf, 252)
+
+    # Returns that vary but whose MEAN is exactly the de-annualised
+    # risk-free rate. Excess return is zero on average, so Sharpe must
+    # be zero. A constant series would instead have zero volatility,
+    # which makes Sharpe undefined rather than zero - the function
+    # returns NaN there, which is the correct answer.
+    rng = np.random.default_rng(77)
+    noise = rng.normal(0, 0.01, 2000)
+    r = pd.Series(noise - noise.mean() + daily)
+
+    assert abs(sharpe_ratio(r, risk_free_rate=rf)) < 1e-9
+
+    # And the undefined case is reported as NaN, not silently as 0.
+    assert np.isnan(sharpe_ratio(pd.Series([daily] * 500), risk_free_rate=rf))
+
+
+def test_sharpe_annualisation_is_sqrt_time():
+    from fxrisk.risk.performance import sharpe_ratio
+
+    r = pd.Series(np.random.default_rng(2).normal(0.0004, 0.01, 2000))
+    per = sharpe_ratio(r, 0.0, annualise=False)
+    ann = sharpe_ratio(r, 0.0, annualise=True)
+    assert ann == pytest.approx(per * np.sqrt(252), rel=1e-9)
+
+
+def test_sharpe_falls_when_risk_free_rises():
+    from fxrisk.risk.performance import sharpe_ratio
+
+    r = pd.Series(np.random.default_rng(4).normal(0.0006, 0.01, 1500))
+    assert sharpe_ratio(r, 0.06) < sharpe_ratio(r, 0.0)
+
+
+def test_sortino_uses_mar_not_zero():
+    """
+    Sortino must measure downside against the minimum acceptable
+    return. With a high risk-free rate, more observations count as
+    downside, so Sortino must be strictly lower.
+    """
+    from fxrisk.risk.performance import sortino_ratio
+
+    r = pd.Series(np.random.default_rng(6).normal(0.0005, 0.01, 1500))
+    assert sortino_ratio(r, 0.10) < sortino_ratio(r, 0.0)
+
+
+def test_performance_summary_fields_are_consistent():
+    from fxrisk.risk.performance import performance_summary
+
+    r = pd.Series(np.random.default_rng(9).normal(0.0004, 0.01, 1260))
+    s = performance_summary(r, risk_free_rate=0.02)
+    assert s.periods == 1260
+    assert s.max_drawdown <= 0
+    assert 0 <= s.hit_rate <= 1
+    assert s.sharpe == pytest.approx(s.sharpe_per_period * np.sqrt(252), rel=1e-9)
+
+
+def test_rolling_sharpe_warmup_and_length():
+    from fxrisk.risk.performance import rolling_sharpe
+
+    r = pd.Series(np.random.default_rng(10).normal(0.0003, 0.01, 600))
+    rs = rolling_sharpe(r, window=126)
+    assert rs.iloc[:125].isna().all()
+    assert rs.iloc[125:].notna().all()
+
+
+# ---------------------------------------------------------------
+# Pairwise correlation
+# ---------------------------------------------------------------
+
+def test_pairwise_table_covers_every_pair():
+    from fxrisk.risk.correlation import pairwise_table
+
+    rng = np.random.default_rng(14)
+    df = pd.DataFrame(rng.normal(0, 0.01, (600, 4)), columns=list("WXYZ"))
+    t = pairwise_table(df)
+    assert len(t) == 6  # 4 choose 2
+    assert t["sample"].between(-1, 1).all()
+    assert t["ewma"].between(-1, 1).all()
+
+
+def test_pairwise_table_reports_dcc_range():
+    from fxrisk.models.dcc import fit_dcc
+    from fxrisk.risk.correlation import pairwise_table
+
+    df = _panel(n=700, seed=17)
+    dcc = fit_dcc(df, dist="normal", mean="zero")
+    t = pairwise_table(df, dcc=dcc)
+
+    assert "dcc_range" in t.columns
+    assert (t["dcc_range"] > 0).all()
+    assert (t["dcc_max"] >= t["dcc_min"]).all()
+
+
+def test_correlation_stress_split_is_reported():
+    from fxrisk.models.dcc import fit_dcc
+    from fxrisk.risk.correlation import correlation_stress
+
+    df = _panel(n=700, seed=19)
+    dcc = fit_dcc(df, dist="normal", mean="zero")
+    out = correlation_stress(df, dcc, quantile=0.1)
+    assert {"calm", "stressed", "increase"} <= set(out.columns)
+    assert out.attrs["n_stressed_days"] > 0

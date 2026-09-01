@@ -47,6 +47,7 @@ import pandas as pd
 from scipy import stats
 
 from ..models.ewma import RISKMETRICS_LAMBDA_DAILY, ewma_variance
+from ..models.dcc import rolling_dcc_covariance
 from ..models.garch import rolling_garch_forecasts
 
 
@@ -324,4 +325,82 @@ def component_var(
             "pct_of_total": component / total if total else np.nan,
         },
         index=weights.index,
+    )
+
+
+def dcc_var_series(
+    returns: pd.DataFrame,
+    weights: pd.Series | np.ndarray,
+    confidence: float = 0.99,
+    dist: str = "t",
+    nu: float | None = None,
+    window: int = 750,
+    refit_every: int = 126,
+    min_obs: int = 400,
+) -> pd.DataFrame:
+    """
+    Walk-forward portfolio VaR driven by the DCC covariance path.
+
+    This is what makes DCC load-bearing rather than decorative. The
+    other estimators in this module model the volatility of the
+    portfolio return series directly, so a change in the correlation
+    between constituents only reaches the risk number after it has
+    already shown up in realised portfolio volatility. Here the
+    covariance matrix is forecast asset by asset and then contracted
+    with the weights:
+
+        sigma2_p,t = w' H_t w
+
+    so a correlation regime shift moves VaR on the day the model
+    detects it, not after the portfolio has lived through it.
+
+    The covariance path comes from `rolling_dcc_covariance`, which
+    only uses returns strictly before each date. Do not substitute
+    `fit_dcc` here: it is an in-sample estimator and would leak the
+    whole sample into every historical VaR.
+
+    Returns a frame with `var`, `expected_shortfall` and the
+    portfolio volatility forecast, indexed by date.
+    """
+    _check_confidence(confidence)
+
+    w = np.asarray(weights, dtype="float64").reshape(-1)
+    if len(w) != returns.shape[1]:
+        raise ValueError(
+            f"weights length {len(w)} does not match {returns.shape[1]} assets"
+        )
+
+    cov_path = rolling_dcc_covariance(
+        returns, window=window, refit_every=refit_every, dist=dist, min_obs=min_obs
+    )
+    if not cov_path:
+        raise ValueError("DCC produced no covariance forecasts")
+
+    alpha = 1.0 - confidence
+    if dist == "t":
+        if nu is None:
+            nu = 8.0
+        nu = max(float(nu), 2.5)
+        scale = np.sqrt((nu - 2) / nu)
+        t_q = stats.t.ppf(alpha, df=nu)
+        q = t_q * scale
+        es_std = -((nu + t_q**2) / (nu - 1) * stats.t.pdf(t_q, df=nu) / alpha) * scale
+    else:
+        q = stats.norm.ppf(alpha)
+        es_std = -stats.norm.pdf(q) / alpha
+
+    dates, sigmas = [], []
+    for date, h in cov_path.items():
+        variance = float(w @ h.to_numpy() @ w)
+        dates.append(date)
+        sigmas.append(np.sqrt(max(variance, 0.0)))
+
+    sigma = np.asarray(sigmas)
+    return pd.DataFrame(
+        {
+            "var": -(sigma * q),
+            "expected_shortfall": -(sigma * es_std),
+            "volatility": sigma,
+        },
+        index=pd.DatetimeIndex(dates),
     )

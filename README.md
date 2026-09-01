@@ -35,6 +35,7 @@ So:
 |---|---|
 | Sample covariance | EWMA (RiskMetrics, λ = 0.94) and DCC-GARCH |
 | Constant volatility | GARCH(1,1) with Student-t innovations |
+| Correlation ignored in VaR | DCC covariance contracted with weights |
 | Unverified VaR | Kupiec, Christoffersen, Basel traffic light, Lopez loss |
 | No tail analysis | Expected Shortfall alongside every VaR |
 | Daily bars from a vendor | HistData tick data, tick-count-weighted VWAP |
@@ -105,6 +106,14 @@ Correlations rise in crises. A static matrix estimated over a calm
 decade understates portfolio risk in exactly the state where the
 number carries weight.
 
+`rolling_dcc_covariance` is the walk-forward version, and it is the
+one the VaR path uses. `fit_dcc` sees the whole panel, so its
+correlation path cannot be used for a backtest without leaking the
+future into every historical date. Refits are semi-annual by
+default rather than monthly — each fit runs one MLE per asset plus
+a likelihood optimisation over the window, so daily refitting is
+not tractable.
+
 Stated limits: two-stage DCC is consistent but not efficient,
 stage-2 standard errors ignore stage-1 estimation error, and the
 scalar (a, b) form makes every pair share the same correlation
@@ -112,11 +121,23 @@ dynamics.
 
 ### VaR and ES — `fxrisk/risk/var.py`
 
-Five estimators, because the disagreement between them is
+Six estimators, because the disagreement between them is
 informative: `historical`, `parametric_normal`, `ewma`, `garch_t`,
-`cornish_fisher`. Plus portfolio VaR from any covariance matrix and
-a component-VaR decomposition that answers where the risk actually
-sits.
+`cornish_fisher`, and `dcc_portfolio`. Plus portfolio VaR from any
+covariance matrix and a component-VaR decomposition that answers
+where the risk actually sits.
+
+`dcc_var_series` is what makes DCC load-bearing rather than
+decorative. The other estimators model the volatility of the
+*portfolio return series*, so a change in correlation between
+constituents only reaches the risk number after it has already
+shown up in realised portfolio volatility. This one forecasts the
+covariance matrix asset by asset and contracts it with the weights,
+
+    sigma2_p,t = w' H_t w
+
+so a correlation regime shift moves VaR on the day the model
+detects it rather than after the portfolio has lived through it.
 
 Expected Shortfall accompanies every VaR — Basel's FRTB replaced
 99% VaR with 97.5% ES as the capital measure, because VaR says
@@ -152,6 +173,39 @@ time. At 95% (~150 breaches) power rises above two thirds. A pass at
 times per 250 days and would be scored "red" for working properly.
 Other confidence levels return `n/a` rather than a misleading
 colour.
+
+### Pairwise correlation — `fxrisk/risk/correlation.py`
+
+`pairwise_table` puts three estimates of every instrument pair side
+by side: the full-sample Pearson correlation, the EWMA value at the
+end of the sample, and the DCC path's last / mean / min / max. The
+column that matters is `dcc_range` — max minus min — because that is
+precisely what the single sample number averages away.
+
+`correlation_stress` splits the sample on portfolio-average return
+and reports each pair's mean conditional correlation on the worst
+5% of days against all others. A positive `increase` means
+diversification weakens exactly when it is needed, which is the
+empirical case for using a conditional correlation model at all.
+
+### Risk-adjusted performance — `fxrisk/risk/performance.py`
+
+Sharpe, Sortino, Calmar, drawdown and rolling Sharpe, plus a
+per-instrument table. Two things it is deliberately explicit about:
+
+*The risk-free rate is annual and is de-annualised before use.*
+Subtracting an annual 4% from a daily return is a factor-252 error
+and a common one. Every function here takes the annual rate and
+converts it geometrically.
+
+*Sortino measures downside against the minimum acceptable return,*
+not against zero. Using zero is common and wrong whenever the
+risk-free rate is non-zero, and it makes Sortino non-comparable
+with the Sharpe printed beside it.
+
+`sharpe_ratio` also returns the un-annualised value, so the
+sqrt-time assumption behind annualisation stays visible rather than
+buried.
 
 ### Stress testing — `fxrisk/risk/stress.py`
 
@@ -279,9 +333,11 @@ fx-risk-engine/
 │   │   └── dcc.py               # DCC-GARCH
 │   └── risk/
 │       ├── var.py               # VaR + Expected Shortfall
+│       ├── performance.py       # Sharpe, Sortino, drawdown
+│       ├── correlation.py       # pairwise static vs EWMA vs DCC
 │       ├── backtesting.py       # Kupiec, Christoffersen, Basel
 │       └── stress.py            # dated historical scenarios
-├── tests/test_risk_engine.py    # 43 tests
+├── tests/test_risk_engine.py    # 56 tests
 └── quant-portfolio/             # vendored, see §7
 ```
 
