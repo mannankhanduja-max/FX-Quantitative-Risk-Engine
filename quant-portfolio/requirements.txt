@@ -1,0 +1,18 @@
+# Only what the project actually imports.
+#
+# The previous version of this file was a full `pip freeze` of the
+# development environment: around eighty packages, including cvxpy,
+# vectorbt, pyportfolioopt, plotly, seaborn, scikit-learn, numba and
+# the Jupyter stack, none of which appear in any import statement.
+#
+# It also pinned numpy==1.23.5 alongside pandas==2.3.3, a combination
+# that does not install cleanly on recent Python versions.
+#
+# Lower bounds rather than hard pins, so the project installs on a
+# current interpreter. Pin exactly if you need a reproducible run.
+
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+matplotlib>=3.7
+yfinance>=0.2.40
