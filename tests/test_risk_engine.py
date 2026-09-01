@@ -825,3 +825,71 @@ def test_correlation_stress_split_is_reported():
     out = correlation_stress(df, dcc, quantile=0.1)
     assert {"calm", "stressed", "increase"} <= set(out.columns)
     assert out.attrs["n_stressed_days"] > 0
+
+
+# ---------------------------------------------------------------
+# Instrument universe
+# ---------------------------------------------------------------
+
+def test_universe_is_the_single_source_of_truth():
+    """
+    Both pipelines must describe the same book. Before this was
+    centralised the engine held four dollar pairs while
+    quant_metrics.py held gold, EUR/USD and GBP/JPY, and nothing in
+    the code said which was intended.
+    """
+    import config
+
+    assert config.PAIRS == [i.histdata for i in config.UNIVERSE]
+    assert set(config.YAHOO_SYMBOLS.values()) == {i.yahoo for i in config.UNIVERSE}
+    assert len(config.PAIRS) == len(set(config.PAIRS)), "duplicate instrument"
+
+
+def test_quant_metrics_uses_the_shared_universe():
+    """quant_metrics.py must not carry its own hard-coded ticker list."""
+    import os
+    import re
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "quant_metrics.py")
+    if not os.path.exists(path):
+        pytest.skip("quant_metrics.py not present")
+
+    src = open(path, encoding="utf-8").read()
+    assert "config.YAHOO_SYMBOLS" in src, "no longer sourced from config"
+
+    # The only literal ticker map allowed is the ImportError fallback.
+    literal_maps = re.findall(r"TICKERS\s*=\s*\{", src)
+    assert len(literal_maps) <= 1, "more than one hard-coded ticker map"
+
+
+def test_universe_start_date_is_reported():
+    """
+    The shortest history bounds the whole sample, because cleaning
+    drops any date where an instrument is missing. That bound must
+    be visible in config rather than discovered at run time.
+    """
+    import config
+
+    assert config.UNIVERSE_STARTS_AFTER == max(
+        i.available_from for i in config.UNIVERSE
+    )
+
+
+def test_adding_gold_truncates_the_sample_to_2009():
+    """
+    Documents the trade rather than asserting a preference: the gold
+    universe cannot reach the 2008 stress scenarios.
+    """
+    import config
+
+    from fxrisk.risk.stress import SCENARIOS
+
+    gold_start = max(i.available_from for i in config.UNIVERSE_FX_GOLD)
+    fx_start = max(i.available_from for i in config.UNIVERSE_FX)
+
+    assert gold_start > fx_start
+    assert gold_start.startswith("2009")
+
+    lehman = SCENARIOS["gfc_2008"]
+    assert str(lehman.end)[:4] < "2009", "Lehman window predates the gold history"

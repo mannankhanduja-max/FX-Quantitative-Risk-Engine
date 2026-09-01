@@ -1,13 +1,32 @@
+import os
+import sys
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
+# The instrument universe is defined once, in config.py, and shared
+# with the fxrisk engine so both halves of this repository describe
+# the same book. Previously this file held its own hard-coded list
+# (gold futures, EUR/USD, GBP/JPY) while the engine held four dollar
+# pairs, and nothing said which was intended.
+#
+# config.py imports nothing beyond the standard library, so this
+# stays runnable with just numpy, pandas and yfinance.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-TICKERS = {
-    "Gold Futures": "GC=F",
-    "EUR/USD": "EURUSD=X",
-    "GBP/JPY": "GBPJPY=X",
-}
+try:
+    import config
+
+    TICKERS = dict(config.YAHOO_SYMBOLS)
+except ImportError:  # pragma: no cover - standalone fallback
+    TICKERS = {
+        "EUR/USD": "EURUSD=X",
+        "GBP/USD": "GBPUSD=X",
+        "USD/JPY": "USDJPY=X",
+        "USD/CHF": "USDCHF=X",
+        "GBP/JPY": "GBPJPY=X",
+    }
 
 
 def fetch_price_data(ticker, period="2y"):

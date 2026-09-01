@@ -7,7 +7,7 @@ tick data.
 > **Backtest-only.** Every number this repository produces is
 > computed on historical data. None of it is a prediction, a
 > recommendation, or investment advice. See
-> [§9 Backtest-only results](#9-backtest-only-results) before
+> [§10 Backtest-only results](#10-backtest-only-results) before
 > quoting anything from here.
 
 ---
@@ -356,7 +356,55 @@ that means something and one that does not.
 
 ---
 
-## 5. `quant_metrics.py` — the original pipeline
+## 5. The instrument universe
+
+Defined once, in `config.py`, and read by both pipelines — so the
+two halves of this repository describe the same book.
+
+| Instrument | HistData | Yahoo | History from |
+|---|---|---|---|
+| EUR/USD | `EURUSD` | `EURUSD=X` | 2000-05 |
+| GBP/USD | `GBPUSD` | `GBPUSD=X` | 2000-05 |
+| USD/JPY | `USDJPY` | `USDJPY=X` | 2000-05 |
+| USD/CHF | `USDCHF` | `USDCHF=X` | 2000-05 |
+| GBP/JPY | `GBPJPY` | `GBPJPY=X` | 2002-05 |
+
+`run_risk_report.py` loads the HistData column from local files;
+`quant_metrics.py` downloads the Yahoo column. Neither holds its own
+list. Before this was centralised the engine held four dollar pairs
+while `quant_metrics.py` held gold futures, EUR/USD and GBP/JPY, and
+nothing in the code said which was intended — a test now fails if
+they drift apart again.
+
+### Two things worth knowing about this universe
+
+**These are not five independent risks.** USD/JPY and USD/CHF are
+both dollar crosses; EUR/USD and USD/CHF have historically been
+close to mirror images; and GBP/JPY shares legs with both GBP/USD
+and USD/JPY. DCC reports that as high conditional correlation, which
+is correct — but an equal-weight portfolio across these five is less
+diversified than "five instruments" suggests. The pairwise table in
+§3 is the place to look before assuming otherwise.
+
+**Adding gold costs you 2008.** `config.UNIVERSE_FX_GOLD` is the
+same book plus spot gold (`XAUUSD` / `XAUUSD=X`), which is a genuine
+diversifier in an FX book — it is the dollar-stress hedge. But
+HistData's XAU/USD starts in **March 2009**, and cleaning drops any
+date where an instrument is missing, so adding it truncates the
+entire sample to 2009 onward. The Lehman and full-GFC stress
+scenarios then report as skipped. That is correct behaviour and a
+real loss, so it is a trade rather than an oversight in either
+direction:
+
+```python
+# config.py
+UNIVERSE = UNIVERSE_FX        # default: full history back to 2002
+# UNIVERSE = UNIVERSE_FX_GOLD # gold included, sample starts 2009-03
+```
+
+---
+
+## 6. `quant_metrics.py` — the original pipeline
 
 The repository began as a compact rolling-metrics pipeline, and that
 script is still here and still runs standalone:
@@ -388,7 +436,7 @@ repository.
 
 ---
 
-## 6. Layout
+## 7. Layout
 
 ```
 fx-risk-engine/
@@ -417,7 +465,7 @@ fx-risk-engine/
 
 ---
 
-## 7. What the tests actually check
+## 8. What the tests actually check
 
 Not coverage for its own sake. Each test pins a property whose
 silent failure would make output wrong in a way nobody would catch
@@ -471,7 +519,7 @@ because the numbers were wrong.
 
 ---
 
-## 8. `quant-portfolio/`
+## 9. `quant-portfolio/`
 
 A vendored copy of
 [carlonimatteoo03/Quant_Portoflio](https://github.com/carlonimatteoo03/Quant_Portoflio)
@@ -481,7 +529,7 @@ optimisation is in-sample by construction; see its own README.
 
 ---
 
-## 9. Backtest-only results
+## 10. Backtest-only results
 
 **Everything this repository produces is a backtest.** It describes
 what these models would have reported about the past. It is not a
@@ -514,7 +562,7 @@ any kind.
 
 ---
 
-## 10. References
+## 11. References
 
 - J.P. Morgan / Reuters, *RiskMetrics Technical Document*, 4th ed., 1996
 - Engle, R. (2002), "Dynamic Conditional Correlation", *JBES* 20(3)
@@ -523,6 +571,6 @@ any kind.
 - Lopez, J. (1999), "Methods for Evaluating Value-at-Risk Estimates", *FRBSF Economic Review*
 - Basel Committee, *Supervisory Framework for the Use of Backtesting*, 1996; *Minimum Capital Requirements for Market Risk* (FRTB), 2019
 
-## 11. Licence
+## 12. Licence
 
 MIT.
