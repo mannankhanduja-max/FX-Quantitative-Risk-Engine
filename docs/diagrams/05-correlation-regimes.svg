@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="900" height="380" role="img" aria-label="A single sample correlation of 0.55 hides a DCC path running from 0.22 to 0.81, and correlations rise further on the worst five percent of days.">
+  <rect width="900" height="380" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="899" height="379" fill="none" stroke="#d8dbe0"/>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="24" y="30" font-size="13" font-weight="bold">What one correlation number hides</text>
+    <text x="24" y="48" font-size="11" fill="#5f6570">Pair SIM_A / SIM_B from the demo run. Same data, three estimators.</text>
+
+    <!-- scale -->
+    <line x1="90" y1="230" x2="770" y2="230" stroke="#1a1a1a"/>
+    <g font-size="10" fill="#5f6570">
+      <line x1="90"  y1="230" x2="90"  y2="236" stroke="#1a1a1a"/><text x="82"  y="252">0.0</text>
+      <line x1="226" y1="230" x2="226" y2="236" stroke="#1a1a1a"/><text x="218" y="252">0.2</text>
+      <line x1="362" y1="230" x2="362" y2="236" stroke="#1a1a1a"/><text x="354" y="252">0.4</text>
+      <line x1="498" y1="230" x2="498" y2="236" stroke="#1a1a1a"/><text x="490" y="252">0.6</text>
+      <line x1="634" y1="230" x2="634" y2="236" stroke="#1a1a1a"/><text x="626" y="252">0.8</text>
+      <line x1="770" y1="230" x2="770" y2="236" stroke="#1a1a1a"/><text x="762" y="252">1.0</text>
+    </g>
+    <text x="380" y="272" font-size="11" fill="#5f6570">conditional correlation</text>
+
+    <!-- DCC range band -->
+    <rect x="241" y="110" width="310" height="100" fill="#f4f5f7" stroke="#1f4e79" stroke-dasharray="4 3"/>
+    <text x="250" y="128" font-size="10" fill="#1f4e79">DCC range 0.223 → 0.810</text>
+    <line x1="241" y1="110" x2="241" y2="230" stroke="#1f4e79"/>
+    <line x1="551" y1="110" x2="551" y2="230" stroke="#1f4e79"/>
+
+    <!-- sample marker -->
+    <line x1="463" y1="86" x2="463" y2="230" stroke="#a11f2c" stroke-width="3"/>
+    <circle cx="463" cy="86" r="5" fill="#a11f2c"/>
+    <text x="452" y="82" font-size="11" fill="#a11f2c" text-anchor="end">sample = 0.548</text>
+    <text x="452" y="97" font-size="10" fill="#5f6570" text-anchor="end">one number for the whole history</text>
+
+    <!-- ewma marker -->
+    <line x1="538" y1="170" x2="538" y2="230" stroke="#1f4e79" stroke-width="3"/>
+    <circle cx="538" cy="170" r="5" fill="#1f4e79"/>
+    <text x="548" y="168" font-size="11" fill="#1f4e79">EWMA = 0.658</text>
+    <text x="548" y="184" font-size="10" fill="#5f6570">current regime</text>
+
+    <line x1="24" y1="292" x2="876" y2="292" stroke="#d8dbe0"/>
+    <text x="24" y="316" font-size="11" font-weight="bold">Correlation on the worst 5% of days vs the rest</text>
+    <text x="24" y="338" font-size="11" fill="#5f6570">SIM_B/SIM_C  0.512 → 0.566<tspan dx="24">SIM_A/SIM_C  0.518 → 0.567</tspan><tspan dx="24">SIM_A/SIM_B  0.496 → 0.542</tspan></text>
+    <text x="24" y="360" font-size="11" fill="#a11f2c">Every pair tightens when it hurts. Diversification is weakest exactly when it is needed.</text>
+  </g>
+</svg>

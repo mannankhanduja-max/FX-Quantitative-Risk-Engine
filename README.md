@@ -61,6 +61,11 @@ prefixed `DEMO_SIMULATED_`.
 
 For real data, see §4.
 
+<figure>
+<img src="docs/diagrams/01-pipeline.svg" alt="End-to-end pipeline: HistData tick files become daily returns cut at the New York close, feed three volatility models, and drive VaR, backtests, correlation and stress replay." width="100%">
+<figcaption><sub>End-to-end pipeline: HistData tick files become daily returns cut at the New York close, feed three volatility models, and drive VaR, backtests, correlation and stress replay.</sub></figcaption>
+</figure>
+
 ---
 
 ## 3. What the models do
@@ -91,6 +96,12 @@ do.
 forecasts: at each date the model has only seen returns strictly
 before it. Refits periodically and recurses daily in between, which
 is what a desk actually does.
+
+<figure>
+<img src="docs/diagrams/02-walk-forward.svg" alt="The forecast for day t may only use returns before t. The leak that was fixed: the Student-t degrees of freedom were fitted on the whole sample, so the scale was honest and the tail shape was not." width="100%">
+<figcaption><sub>The forecast for day t may only use returns before t. The leak that was fixed: the Student-t degrees of freedom were fitted on the whole sample, so the scale was honest and the tail shape was not.</sub></figcaption>
+</figure>
+
 
 ### DCC-GARCH — `fxrisk/models/dcc.py`
 
@@ -139,6 +150,12 @@ covariance matrix asset by asset and contracts it with the weights,
 so a correlation regime shift moves VaR on the day the model
 detects it rather than after the portfolio has lived through it.
 
+<figure>
+<img src="docs/diagrams/03-dcc-to-var.svg" alt="Collapsing to a portfolio return series destroys the correlation information before it reaches the risk number. Contracting the DCC covariance with the weights preserves it." width="100%">
+<figcaption><sub>Collapsing to a portfolio return series destroys the correlation information before it reaches the risk number. Contracting the DCC covariance with the weights preserves it.</sub></figcaption>
+</figure>
+
+
 Expected Shortfall accompanies every VaR — Basel's FRTB replaced
 99% VaR with 97.5% ES as the capital measure, because VaR says
 nothing about how bad the tail gets once you are in it.
@@ -158,6 +175,12 @@ The independence test is what separates a serious engine from a
 toy. Historical VaR typically passes Kupiec and fails
 Christoffersen: it has the right average and is wrong at the moments
 that matter. That failure is the entire argument for GARCH.
+
+<figure>
+<img src="docs/diagrams/04-backtests.svg" alt="Two models, ten breaches each in 250 days. Kupiec cannot tell them apart; Christoffersen fails the one whose breaches arrive in a single volatile fortnight." width="100%">
+<figcaption><sub>Two models, ten breaches each in 250 days. Kupiec cannot tell them apart; Christoffersen fails the one whose breaches arrive in a single volatile fortnight.</sub></figcaption>
+</figure>
+
 
 Two properties documented in the code because they change how you
 read the output:
@@ -188,6 +211,12 @@ and reports each pair's mean conditional correlation on the worst
 diversification weakens exactly when it is needed, which is the
 empirical case for using a conditional correlation model at all.
 
+<figure>
+<img src="docs/diagrams/05-correlation-regimes.svg" alt="One sample correlation of 0.548 stands in for a DCC path running 0.223 to 0.810 — and every pair tightens further on the worst 5% of days." width="100%">
+<figcaption><sub>One sample correlation of 0.548 stands in for a DCC path running 0.223 to 0.810 — and every pair tightens further on the worst 5% of days.</sub></figcaption>
+</figure>
+
+
 ### Risk-adjusted performance — `fxrisk/risk/performance.py`
 
 Sharpe, Sortino, Calmar, drawdown and rolling Sharpe, plus a
@@ -206,6 +235,12 @@ with the Sharpe printed beside it.
 `sharpe_ratio` also returns the un-annualised value, so the
 sqrt-time assumption behind annualisation stays visible rather than
 buried.
+
+<figure>
+<img src="docs/diagrams/07-sharpe.svg" alt="An annual risk-free rate subtracted from daily returns is a factor-252 error; and a zero downside threshold misses returns that are positive but below the risk-free rate." width="100%">
+<figcaption><sub>An annual risk-free rate subtracted from daily returns is a factor-252 error; and a zero downside threshold misses returns that are positive but below the risk-free rate.</sub></figcaption>
+</figure>
+
 
 ### Stress testing — `fxrisk/risk/stress.py`
 
@@ -276,6 +311,12 @@ Two substitutes, both implemented:
 TWAP, names the series `twap`, and emits a `RuntimeWarning`. A TWAP
 is a legitimate benchmark; calling it a VWAP is not.
 
+<figure>
+<img src="docs/diagrams/06-vwap-volume.svg" alt="Every HistData Volume field is zero, so a volume filter silently discards every row. Tick counts restore a real VWAP; M1 bars fall back to a TWAP that is labelled as one." width="100%">
+<figcaption><sub>Every HistData Volume field is zero, so a volume filter silently discards every row. Tick counts restore a real VWAP; M1 bars fall back to a TWAP that is labelled as one.</sub></figcaption>
+</figure>
+
+
 ### The session boundary
 
 FX has no exchange close, so the daily boundary is a choice.
@@ -337,6 +378,7 @@ fx-risk-engine/
 │       ├── correlation.py       # pairwise static vs EWMA vs DCC
 │       ├── backtesting.py       # Kupiec, Christoffersen, Basel
 │       └── stress.py            # dated historical scenarios
+├── docs/diagrams/               # the figures in this README
 ├── tests/test_risk_engine.py    # 56 tests
 └── quant-portfolio/             # vendored, see §7
 ```

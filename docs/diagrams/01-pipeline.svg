@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" role="img" aria-label="End-to-end pipeline: HistData tick files become daily returns, feed three volatility models, which feed VaR estimators, backtests and stress replay.">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/>
+    </marker>
+    <marker id="a1b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f4e79"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="400" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="899" height="399" fill="none" stroke="#d8dbe0"/>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">
+
+    <text x="24" y="30" font-size="13" font-weight="bold">Pipeline</text>
+    <text x="24" y="48" font-size="11" fill="#5f6570">Every arrow moves data forward in time only. Nothing reads a return it is forecasting.</text>
+
+    <!-- DATA -->
+    <text x="24" y="82" font-size="11" font-weight="bold" fill="#1f4e79">DATA</text>
+    <rect x="24" y="92" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="110" font-size="11">HistData tick / M1</text>
+    <text x="34" y="126" font-size="10" fill="#5f6570">volume column = 0</text>
+
+    <rect x="24" y="158" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="176" font-size="11">ticks_to_bars</text>
+    <text x="34" y="192" font-size="10" fill="#5f6570">tick_count = volume proxy</text>
+
+    <rect x="24" y="224" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="242" font-size="11">to_daily</text>
+    <text x="34" y="258" font-size="10" fill="#5f6570">cut at 17:00 New York</text>
+
+    <line x1="104" y1="138" x2="104" y2="156" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <line x1="104" y1="204" x2="104" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+
+    <!-- MODELS -->
+    <text x="248" y="82" font-size="11" font-weight="bold" fill="#1f4e79">VOLATILITY MODELS</text>
+    <rect x="248" y="92" width="180" height="40" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="258" y="116" font-size="11">EWMA  λ = 0.94</text>
+
+    <rect x="248" y="144" width="180" height="40" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="258" y="168" font-size="11">GARCH(1,1) Student-t</text>
+
+    <rect x="248" y="196" width="180" height="52" rx="3" fill="#ffffff" stroke="#1f4e79" stroke-width="2"/>
+    <text x="258" y="216" font-size="11" fill="#1f4e79" font-weight="bold">DCC-GARCH</text>
+    <text x="258" y="232" font-size="10" fill="#5f6570">walk-forward H_t</text>
+
+    <line x1="184" y1="247" x2="246" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <text x="188" y="262" font-size="9" fill="#5f6570">daily returns</text>
+
+    <!-- RISK -->
+    <text x="492" y="82" font-size="11" font-weight="bold" fill="#1f4e79">RISK</text>
+    <rect x="492" y="92" width="180" height="86" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="502" y="112" font-size="11" font-weight="bold">VaR + ES</text>
+    <text x="502" y="130" font-size="10" fill="#5f6570">historical, normal,</text>
+    <text x="502" y="145" font-size="10" fill="#5f6570">ewma, garch_t,</text>
+    <text x="502" y="160" font-size="10" fill="#5f6570">cornish_fisher,</text>
+    <text x="502" y="172" font-size="10" fill="#1f4e79">dcc_portfolio</text>
+
+    <rect x="492" y="196" width="180" height="52" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="502" y="216" font-size="11" font-weight="bold">Pairwise correlation</text>
+    <text x="502" y="234" font-size="10" fill="#5f6570">sample / EWMA / DCC range</text>
+
+    <rect x="492" y="264" width="180" height="52" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="502" y="284" font-size="11" font-weight="bold">Performance</text>
+    <text x="502" y="302" font-size="10" fill="#5f6570">Sharpe, Sortino, drawdown</text>
+
+    <line x1="428" y1="112" x2="490" y2="120" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <line x1="428" y1="164" x2="490" y2="145" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <line x1="428" y1="222" x2="490" y2="170" stroke="#1f4e79" stroke-width="2" marker-end="url(#a1b)"/>
+    <text x="432" y="196" font-size="9" fill="#1f4e79">w^T H_t w</text>
+    <line x1="428" y1="230" x2="490" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+
+    <!-- VERDICT -->
+    <text x="736" y="82" font-size="11" font-weight="bold" fill="#1f4e79">VERDICT</text>
+    <rect x="736" y="92" width="140" height="86" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="746" y="112" font-size="11" font-weight="bold">Backtests</text>
+    <text x="746" y="130" font-size="10" fill="#5f6570">Kupiec</text>
+    <text x="746" y="145" font-size="10" fill="#5f6570">Christoffersen</text>
+    <text x="746" y="160" font-size="10" fill="#5f6570">Basel, Lopez</text>
+    <text x="746" y="173" font-size="10" fill="#1a6b3c">pass / fail</text>
+
+    <rect x="736" y="196" width="140" height="52" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="746" y="216" font-size="11" font-weight="bold">Stress replay</text>
+    <text x="746" y="234" font-size="10" fill="#5f6570">7 dated episodes</text>
+
+    <line x1="672" y1="134" x2="734" y2="134" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <text x="676" y="128" font-size="9" fill="#5f6570">realised vs forecast</text>
+    <line x1="672" y1="222" x2="734" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+
+    <text x="24" y="330" font-size="10" fill="#5f6570">Backtest-only. Nothing here is a prediction.</text>
+  </g>
+</svg>
