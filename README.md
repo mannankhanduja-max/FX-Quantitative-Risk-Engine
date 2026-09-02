@@ -1,8 +1,9 @@
 # FX Quantitative Risk Engine
 
-Volatility modelling, Value at Risk with formal backtesting, and
-stress testing against dated historical episodes — built on real FX
-tick data.
+Volatility modelling, Value at Risk with formal backtesting, Monte
+Carlo simulation and stress testing against dated historical
+episodes — run on **4,918 trading days of real market data**,
+February 2007 to September 2026.
 
 > **Backtest-only.** Every number this repository produces is
 > computed on historical data. None of it is a prediction, a
@@ -39,6 +40,7 @@ So:
 | Unverified VaR | Kupiec, Christoffersen, Basel traffic light, Lopez loss |
 | No tail analysis | Expected Shortfall alongside every VaR |
 | Daily bars from a vendor | HistData tick data, tick-count-weighted VWAP |
+| sqrt-time for multi-day risk | Monte Carlo through the variance recursion |
 | "What if markets fall 10%" | Dated replays: Lehman, SNB, CNY, Brexit, COVID, LDI |
 
 ---
@@ -49,17 +51,52 @@ So:
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Runs the entire pipeline on simulated data — no download needed.
-python run_risk_report.py --demo
+# One download. Everything after it is offline and reproducible.
+python fetch_data.py --start 2006-01-01
+
+python run_risk_report.py --source yahoo
+python docs/make_figures.py --source yahoo
 
 pytest tests/ -q
 ```
 
-`--demo` exists so the engine is verifiable in one command. Its
-output describes a simulated market and every file it writes is
-prefixed `DEMO_SIMULATED_`.
+`fetch_data.py` is the only step that touches the network. It writes
+one CSV per instrument into `data/yahoo/`, and every later run reads
+that cache — so a vendor revision or a rate limit cannot silently
+change a backtest you already ran.
 
-For real data, see §4.
+`python run_risk_report.py --demo` runs the whole pipeline on
+simulated data if you want to check the machinery without
+downloading anything. Its output is labelled `DEMO_SIMULATED_`.
+
+**The figures in this README are real.** 4,918 trading days,
+February 2007 to September 2026.
+
+
+### What it finds
+
+At 99% over the full sample, the estimators separate cleanly:
+
+| method | breaches (exp. 46) | Kupiec p | Christoffersen p | |
+|---|---|---|---|---|
+| `dcc_portfolio` | 49 | 0.57 | 0.56 | **pass** |
+| `garch_t` | 49 | 0.74 | 0.54 | **pass** |
+| `historical` | 51 | 0.31 | 0.003 | fail |
+| `parametric_normal` | 60 | 0.02 | 0.001 | fail |
+| `ewma_normal` | 76 | 0.0003 | 0.49 | fail |
+
+`ewma_normal` is the instructive one. It **passes** the independence
+test and fails coverage badly — 76 breaches against 48.9 expected. It
+gets the volatility right and the tail shape wrong, which is exactly
+what a Gaussian quantile on fat-tailed returns should do. `historical`
+does the reverse: roughly the right count, clustered in the wrong
+places.
+
+Monte Carlo at 99%, 20,000 paths: 1-day VaR **1.41%**, 10-day
+**4.33%**. Square-root-of-time scaling would say 4.46% — a ratio of
+**0.971**, so the iid assumption overstates ten-day risk here.
+
+---
 
 <figure>
 <img src="docs/diagrams/01-pipeline.svg" alt="End-to-end pipeline: HistData tick files become daily returns cut at the New York close, feed three volatility models, and drive VaR, backtests, correlation and stress replay." width="100%">
@@ -79,8 +116,8 @@ Provides variance, full covariance paths, correlation, and a
 portfolio variance path that avoids materialising every matrix.
 
 <figure>
-<img src="docs/figures/DEMO_01-volatility.png" alt="Three volatility estimates on the same portfolio. The rolling 252-day standard deviation steps when a shock enters and leaves the window; EWMA and GARCH respond on the day." width="100%">
-<figcaption><sub>Three volatility estimates on the same portfolio. The rolling 252-day standard deviation steps when a shock enters and leaves the window; EWMA and GARCH respond on the day.</sub></figcaption>
+<img src="docs/figures/01-volatility.png" alt="Three volatility estimates on the equal-weight ETF portfolio, 2007-2026. The rolling 252-day standard deviation steps when a shock enters and leaves the window; EWMA and GARCH respond on the day." width="100%">
+<figcaption><sub>Three volatility estimates on the equal-weight ETF portfolio, 2007-2026. The rolling 252-day standard deviation steps when a shock enters and leaves the window; EWMA and GARCH respond on the day.</sub></figcaption>
 </figure>
 
 
@@ -170,8 +207,8 @@ The Gaussian estimator is included specifically as a baseline that
 should fail. Demonstrating that is the point.
 
 <figure>
-<img src="docs/figures/DEMO_02-var-breaches.png" alt="Realised daily returns against the 99% GARCH-t VaR line. The line widens through volatile periods, and the 23 breaches are scattered rather than bunched." width="100%">
-<figcaption><sub>Realised daily returns against the 99% GARCH-t VaR line. The line widens through volatile periods, and the 23 breaches are scattered rather than bunched.</sub></figcaption>
+<img src="docs/figures/02-var-breaches.png" alt="Realised daily returns against the 99% GARCH-t VaR line over 4,918 trading days. The line widens through 2008, the January 2015 SNB break, March 2020 and 2022, and the 49 breaches are scattered rather than bunched." width="100%">
+<figcaption><sub>Realised daily returns against the 99% GARCH-t VaR line over 4,918 trading days. The line widens through 2008, the January 2015 SNB break, March 2020 and 2022, and the 49 breaches are scattered rather than bunched.</sub></figcaption>
 </figure>
 
 
@@ -210,8 +247,8 @@ Other confidence levels return `n/a` rather than a misleading
 colour.
 
 <figure>
-<img src="docs/figures/DEMO_05-backtest-rates.png" alt="Breach rate per estimator at 99% against the 1% target. The two conditional models land near the target; the historical and Gaussian baselines breach roughly twice as often as they should." width="100%">
-<figcaption><sub>Breach rate per estimator at 99% against the 1% target. The two conditional models land near the target; the historical and Gaussian baselines breach roughly twice as often as they should.</sub></figcaption>
+<img src="docs/figures/05-backtest-rates.png" alt="Breach rate per estimator at 99% against the 1% target, on real data. The two conditional fat-tailed models land near the target; the historical and Gaussian baselines do not." width="100%">
+<figcaption><sub>Breach rate per estimator at 99% against the 1% target, on real data. The two conditional fat-tailed models land near the target; the historical and Gaussian baselines do not.</sub></figcaption>
 </figure>
 
 
@@ -224,8 +261,8 @@ column that matters is `dcc_range` — max minus min — because that is
 precisely what the single sample number averages away.
 
 <figure>
-<img src="docs/figures/DEMO_03-correlation.png" alt="Pairwise DCC conditional correlation against the unconditional value (dotted). Every pair spends most of the sample away from its own long-run average." width="100%">
-<figcaption><sub>Pairwise DCC conditional correlation against the unconditional value (dotted). Every pair spends most of the sample away from its own long-run average.</sub></figcaption>
+<img src="docs/figures/03-correlation.png" alt="All ten pairwise DCC correlations against their unconditional levels (dotted). Euro/Swiss franc sits near 0.72 and collapses toward zero on the day the SNB removed the floor." width="100%">
+<figcaption><sub>All ten pairwise DCC correlations against their unconditional levels (dotted). Euro/Swiss franc sits near 0.72 and collapses toward zero on the day the SNB removed the floor.</sub></figcaption>
 </figure>
 
 `correlation_stress` splits the sample on portfolio-average return
@@ -260,8 +297,8 @@ sqrt-time assumption behind annualisation stays visible rather than
 buried.
 
 <figure>
-<img src="docs/figures/DEMO_04-rolling-sharpe.png" alt="Rolling 126-day Sharpe against the full-sample value. The single number sits at -0.21 while the rolling estimate ranges from -4.4 to +3.9." width="100%">
-<figcaption><sub>Rolling 126-day Sharpe against the full-sample value. The single number sits at -0.21 while the rolling estimate ranges from -4.4 to +3.9.</sub></figcaption>
+<img src="docs/figures/04-rolling-sharpe.png" alt="Rolling 126-day Sharpe against the full-sample value, real ETF data." width="100%">
+<figcaption><sub>Rolling 126-day Sharpe against the full-sample value, real ETF data.</sub></figcaption>
 </figure>
 
 

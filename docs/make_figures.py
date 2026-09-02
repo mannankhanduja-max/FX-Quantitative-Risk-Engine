@@ -169,23 +169,51 @@ def fig_var_breaches(portfolio: pd.Series, var: pd.Series, prefix: str) -> None:
 
 
 def fig_correlation(dcc, assets: list[str], prefix: str) -> None:
-    """Every pairwise DCC correlation path, with the sample value."""
+    """
+    One panel per instrument pair: the DCC path against its own
+    unconditional level.
+
+    SMALL MULTIPLES, NOT ONE AXIS. Five instruments give ten pairs.
+    An earlier version zipped the pairs against a four-colour list,
+    and `zip` silently truncated - six pairs simply were not drawn,
+    and nothing in the output said so. Ten overlapping lines would
+    have been unreadable in any case. Here identity comes from the
+    panel title rather than from colour, so the chart has no series
+    cap to truncate against.
+    """
     from itertools import combinations
 
-    fig, ax = plt.subplots(figsize=(9, 3.4))
-    for (i, j), colour in zip(combinations(assets, 2), (S1, S2, S3, S4)):
+    pairs = list(combinations(assets, 2))
+    n = len(pairs)
+    ncols = 3 if n > 4 else min(n, 2)
+    nrows = int(np.ceil(n / ncols))
+
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=(3.1 * ncols, 1.9 * nrows),
+        sharex=True, sharey=True,
+    )
+    axes = np.atleast_1d(axes).ravel()
+
+    for ax, (i, j) in zip(axes, pairs):
         path = dcc.correlation_series(i, j)
-        ax.plot(path.index, path, color=colour, label=f"{i}/{j}")
-        ax.axhline(
-            float(dcc.unconditional_correlation.loc[i, j]),
-            color=colour,
-            linestyle=":",
-            linewidth=1.1,
-        )
-    ax.set_title("DCC conditional correlation (dotted: unconditional)")
-    ax.set_ylabel("ρ")
-    ax.set_ylim(-0.1, 1.0)
-    ax.legend(loc="lower left", ncols=3)
+        uncond = float(dcc.unconditional_correlation.loc[i, j])
+
+        ax.plot(path.index, path, color=S1, linewidth=0.8)
+        ax.axhline(uncond, color=MUTED, linestyle=":", linewidth=1.0)
+        ax.set_title(f"{i} / {j}", fontsize=8.5)
+        ax.set_ylim(-0.3, 1.0)
+        ax.tick_params(labelsize=7)
+
+    # Blank any unused cell rather than leaving empty axes furniture.
+    for ax in axes[n:]:
+        ax.set_visible(False)
+
+    fig.suptitle(
+        "DCC conditional correlation by pair (dotted: unconditional)",
+        fontsize=10, fontweight="bold", color=INK, y=1.0,
+    )
+    fig.tight_layout()
     _save(fig, "03-correlation", prefix)
 
 
