@@ -24,6 +24,9 @@ import numpy as np
 import pandas as pd
 
 import config
+from fxrisk.data import yahoo
+from fxrisk import indicators
+from fxrisk.risk.montecarlo import compare_methods, term_structure
 from fxrisk.data.histdata import daily_returns, load_m1, load_ticks, ticks_to_bars, to_daily
 from fxrisk.models.dcc import fit_dcc
 from fxrisk.models.ewma import (
@@ -134,6 +137,12 @@ def load_real_returns(data_dir: str, pairs: list[str], granularity: str) -> pd.D
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", action="store_true", help="run on simulated data")
+    parser.add_argument(
+        "--source",
+        choices=("histdata", "yahoo"),
+        default="histdata",
+        help="yahoo reads the local cache written by fetch_data.py",
+    )
     parser.add_argument("--data-dir", default=config.DATA_DIR)
     parser.add_argument("--skip-dcc", action="store_true", help="DCC is the slow step")
     args = parser.parse_args()
@@ -143,6 +152,19 @@ def main() -> int:
         returns = load_demo_returns()
         print("  SIMULATED DATA - results below describe no real market.")
         print(f"  {returns.shape[1]} series, {len(returns)} observations")
+    elif args.source == "yahoo":
+        symbols = {i.name: i.yahoo for i in config.UNIVERSE}
+        rep = yahoo.coverage_report(symbols)
+        print("  Yahoo Finance daily bars, from the local cache.\n")
+        print(rep.to_string())
+        returns = yahoo.daily_returns(symbols, kind="log")
+        yahoo_symbols = symbols
+        print(f"\n  aligned panel: {len(returns)} rows")
+        if rep.attrs.get("binding"):
+            print(f"  sample is bounded by: {rep.attrs['binding']}")
+        print("  NOTE: Yahoo daily FX bars use Yahoo's own session boundary,")
+        print("  not the 17:00 New York convention, and carry no volume - so")
+        print("  no tick-count VWAP is available on this source.")
     else:
         returns = load_real_returns(args.data_dir, config.PAIRS, config.DATA_GRANULARITY)
 
@@ -221,6 +243,45 @@ def main() -> int:
             print(f"  correlation stress split unavailable: {exc}")
 
     # ---------------------------------------------------------
+    if args.source == "yahoo" and not args.demo:
+        _header("VWAP AND 9-PERIOD EMA")
+        print(f"Rolling {config.VWAP_WINDOW_DAILY}-bar VWAP, weighted by real")
+        print(f"share volume, with a {config.VWAP_EMA_SPAN}-period EMA on top.\n")
+        for name, sym in yahoo_symbols.items():
+            try:
+                bars = yahoo.load_symbol(sym)
+                frame = indicators.vwap_ema(
+                    bars,
+                    window=config.VWAP_WINDOW_DAILY,
+                    span=config.VWAP_EMA_SPAN,
+                )
+                print(f"{name} ({sym})")
+                print(indicators.summary(frame))
+                print()
+            except ValueError as exc:
+                print(f"{name} ({sym}): {exc}\n")
+
+    _header("MONTE CARLO VaR")
+    print(f"{config.MC_SIMULATIONS:,} paths, seed fixed.\n")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            print("Methods at 99%, 1 day:")
+            print(compare_methods(
+                portfolio, confidence=0.99,
+                n_simulations=config.MC_SIMULATIONS).round(5).to_string())
+
+            ts = term_structure(
+                portfolio, config.MC_HORIZONS, confidence=0.99,
+                n_simulations=config.MC_SIMULATIONS, method="fhs")
+            print("\nTerm structure (FHS) vs sqrt-time scaling:")
+            print(ts.round(5).to_string())
+            print("\n  ratio < 1 means sqrt-time OVERSTATES risk - current")
+            print("  volatility is above its long-run level and the model")
+            print("  expects it to mean-revert over the horizon.")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  Monte Carlo unavailable: {exc}")
+
     _header("RISK-ADJUSTED PERFORMANCE")
 
     perf = performance_summary(portfolio, risk_free_rate=config.RISK_FREE_RATE)
@@ -347,7 +408,8 @@ def main() -> int:
     # ---------------------------------------------------------
     if config.SAVE_RESULTS and all_results:
         os.makedirs(config.RESULTS_DIR, exist_ok=True)
-        tag = "DEMO_SIMULATED_" if args.demo else ""
+        tag = "DEMO_SIMULATED_" if args.demo else (
+            "YAHOO_" if args.source == "yahoo" else "")
 
         compare_models(all_results).to_csv(
             os.path.join(config.RESULTS_DIR, f"{tag}var_backtests.csv")

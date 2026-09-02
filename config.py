@@ -50,9 +50,59 @@ class Instrument:
         return f"Instrument({self.histdata})"
 
 
-# Default universe: four majors plus one cross. Full HistData
-# history back to 2002, which keeps the 2008 stress scenarios
-# testable.
+# ------------------------------------------------------------
+# ETF UNIVERSE - the default
+#
+# Every instrument is an NYSE Arca ETF, which buys three things
+# that FX spot pairs cannot give:
+#
+#   ONE CLOCK. All six close at 16:00 ET. Daily closes are
+#   therefore observed at the same instant, so the covariance
+#   matrix compares like with like. FX spot quotes run ~24/5 and
+#   their "close" is a vendor convention, which biases
+#   correlations toward zero (the Epps effect) before they reach
+#   any optimiser.
+#
+#   REAL VOLUME. Yahoo reports Volume = 0 for every FX spot pair,
+#   which makes a volume-weighted average price undefined. ETFs
+#   report actual share volume, so VWAP - and the 9-period EMA of
+#   it - are computable rather than fabricated.
+#
+#   HISTORY THROUGH 2008. Inception dates below are all pre-crisis,
+#   so the Lehman, SNB, CNY and Brexit stress scenarios stay
+#   testable. Starting the sample at 2018 would silently discard
+#   four of the six scenarios.
+#
+# Direction note: FXE/FXB/FXY/FXF are quoted as FOREIGN CURRENCY
+# per USD. FXY rising means the yen strengthening, i.e. USD/JPY
+# falling. Signs are inverted relative to the USD-base pairs this
+# universe replaced. That matters for interpreting a correlation,
+# not for measuring risk.
+# ------------------------------------------------------------
+
+UNIVERSE_ETF = [
+    Instrument("Euro",        "FXE", "FXE", "2005-12", kind="fx_etf"),
+    Instrument("Pound",       "FXB", "FXB", "2006-06", kind="fx_etf"),
+    Instrument("Yen",         "FXY", "FXY", "2007-02", kind="fx_etf"),
+    Instrument("Swiss franc", "FXF", "FXF", "2006-06", kind="fx_etf"),
+    Instrument("Gold",        "GLD", "GLD", "2004-11", kind="metal_etf"),
+]
+
+# GBP/JPY has no direct ETF. It can be built synthetically as
+# FXB / FXY - both are quoted per USD, so the ratio is GBP/JPY -
+# and both trade on the same clock with real volume. Enable with
+# SYNTHETIC_CROSSES; the caveat is that each leg carries its own
+# expense ratio and tracking error, so the level drifts from the
+# true cross over years even though daily returns track closely.
+SYNTHETIC_CROSSES = {
+    # "GBP/JPY": ("FXB", "FXY"),
+}
+
+# ---- The FX spot universe, kept for the HistData path ----
+#
+# Retained because histdata.py reads local tick files, where spot
+# pairs are the only thing available and the 17:00 New York cut is
+# a deliberate choice rather than a vendor default.
 UNIVERSE_FX = [
     Instrument("EUR/USD", "EURUSD", "EURUSD=X", "2000-05"),
     Instrument("GBP/USD", "GBPUSD", "GBPUSD=X", "2000-05"),
@@ -61,21 +111,15 @@ UNIVERSE_FX = [
     Instrument("GBP/JPY", "GBPJPY", "GBPJPY=X", "2002-05"),
 ]
 
-# Same book plus spot gold.
-#
-# READ THIS BEFORE SWITCHING. HistData's XAU/USD starts in March
-# 2009. Because cleaning drops dates where any instrument is
-# missing, adding gold truncates the ENTIRE sample to 2009+ and
-# the Lehman and full-GFC stress scenarios stop being testable -
-# they will be reported as skipped, which is correct behaviour
-# and also a real loss. Gold is genuinely useful in an FX book as
-# the dollar-stress hedge, so this is a trade, not a mistake in
-# either direction.
+# Spot FX plus gold. HistData's XAU/USD starts 2009-03, so adding
+# it truncates the sample past the 2008 scenarios - a real trade,
+# and the reason the ETF universe is preferred: GLD reaches back
+# to 2004.
 UNIVERSE_FX_GOLD = UNIVERSE_FX + [
     Instrument("Gold spot", "XAUUSD", "XAUUSD=X", "2009-03", kind="metal"),
 ]
 
-UNIVERSE = UNIVERSE_FX
+UNIVERSE = UNIVERSE_ETF
 
 # Derived views. Nothing downstream should hard-code a symbol.
 PAIRS = [i.histdata for i in UNIVERSE]
@@ -180,3 +224,28 @@ RISK_FREE_RATE = 0.04
 # ~6 months. Short enough to show regime shifts, long enough that
 # the estimate is not pure noise.
 ROLLING_SHARPE_WINDOW = 126
+
+
+# ============================================================
+# VWAP / EMA INDICATOR
+# ============================================================
+
+# Rolling VWAP window in bars. Meaningful only on the ETF
+# universe: FX spot reports zero volume, which makes VWAP
+# undefined rather than merely noisy.
+VWAP_WINDOW_DAILY = 20
+
+# EMA span applied to the VWAP series.
+VWAP_EMA_SPAN = 9
+
+# ============================================================
+# MONTE CARLO
+# ============================================================
+
+MC_SIMULATIONS = 20000
+
+# Horizons in trading days. Monte Carlo is the honest way to get a
+# multi-day figure: sqrt-time scaling assumes iid returns and
+# ignores that volatility mean-reverts, so it overstates risk when
+# current vol is above its long-run level and understates it below.
+MC_HORIZONS = [1, 5, 10]

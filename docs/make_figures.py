@@ -250,6 +250,7 @@ def fig_backtest_bars(results: list, prefix: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--source", choices=("histdata", "yahoo"), default="histdata")
     parser.add_argument("--data-dir", default=config.DATA_DIR)
     args = parser.parse_args()
 
@@ -259,6 +260,14 @@ def main() -> int:
         returns = demo_panel()
         prefix = "DEMO_"
         print("Simulated data. Figures describe no real market.")
+    elif args.source == "yahoo":
+        from fxrisk.data import yahoo
+
+        symbols = {i.name: i.yahoo for i in config.UNIVERSE}
+        returns = yahoo.daily_returns(symbols, kind="log")
+        prefix = ""
+        print(f"Yahoo daily bars: {len(returns)} rows, "
+              f"{returns.index.min().date()} to {returns.index.max().date()}")
     else:
         from run_risk_report import load_real_returns
 

@@ -893,3 +893,164 @@ def test_adding_gold_truncates_the_sample_to_2009():
 
     lehman = SCENARIOS["gfc_2008"]
     assert str(lehman.end)[:4] < "2009", "Lehman window predates the gold history"
+
+
+# ---------------------------------------------------------------
+# VWAP / EMA indicators
+# ---------------------------------------------------------------
+
+def _bars(n=300, seed=1, volume=True):
+    rng = np.random.default_rng(seed)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    idx = pd.bdate_range("2018-01-01", periods=n)
+    df = pd.DataFrame(
+        {
+            "Close": close,
+            "High": close * 1.004,
+            "Low": close * 0.996,
+            "Volume": rng.integers(1e5, 1e6, n).astype(float) if volume else 0.0,
+        },
+        index=idx,
+    )
+    return df
+
+
+def test_vwap_requires_real_volume():
+    """
+    The whole reason the universe moved to ETFs. FX spot reports
+    zero volume, and a VWAP on it must fail loudly rather than
+    silently degrade to an equal-weighted average.
+    """
+    from fxrisk.indicators import rolling_vwap
+
+    with pytest.raises(ValueError, match="zero on every bar"):
+        rolling_vwap(_bars(volume=False), window=20)
+
+
+def test_vwap_is_volume_weighted_not_equal_weighted():
+    from fxrisk.indicators import rolling_vwap
+
+    idx = pd.bdate_range("2020-01-01", periods=2)
+    bars = pd.DataFrame(
+        {"High": [10.0, 20.0], "Low": [10.0, 20.0],
+         "Close": [10.0, 20.0], "Volume": [1.0, 99.0]},
+        index=idx,
+    )
+    out = rolling_vwap(bars, window=2)
+    assert out.iloc[-1] == pytest.approx((10 * 1 + 20 * 99) / 100)
+
+
+def test_ema_matches_the_recursive_definition():
+    """`adjust=False` is what a charting package means by '9 EMA'."""
+    from fxrisk.indicators import ema
+
+    s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+    out = ema(s, span=9)
+    alpha = 2 / (9 + 1)
+
+    expected = s.iloc[0]
+    for v in s.iloc[1:]:
+        expected = alpha * v + (1 - alpha) * expected
+    assert out.iloc[-1] == pytest.approx(expected)
+
+
+def test_vwap_ema_frame_has_all_columns():
+    from fxrisk.indicators import vwap_ema
+
+    out = vwap_ema(_bars(), window=20, span=9)
+    assert list(out.columns) == ["vwap", "ema", "deviation", "ema_gap"]
+    assert out["vwap"].iloc[:19].isna().all()
+    assert out["vwap"].iloc[19:].notna().all()
+
+
+def test_vwap_signal_is_shifted_so_it_is_tradable():
+    """
+    The signal for day t must be knowable at the close of t-1.
+    Perturbing the last bar must not change any earlier signal.
+    """
+    from fxrisk.indicators import signal
+
+    bars = _bars(seed=5)
+    base = signal(bars, window=20, span=9)
+
+    bumped = bars.copy()
+    bumped.iloc[-1, bumped.columns.get_loc("Close")] *= 1.5
+    after = signal(bumped, window=20, span=9)
+
+    pd.testing.assert_series_equal(base, after)
+
+
+# ---------------------------------------------------------------
+# Monte Carlo
+# ---------------------------------------------------------------
+
+def test_monte_carlo_var_is_ordered_and_reproducible():
+    from fxrisk.risk.montecarlo import monte_carlo_var
+
+    r, _ = simulate_garch(n=1500, seed=3)
+    a = monte_carlo_var(r, confidence=0.95, n_simulations=4000)
+    b = monte_carlo_var(r, confidence=0.99, n_simulations=4000)
+
+    assert b.var > a.var
+    assert b.expected_shortfall > b.var
+
+    # Same seed, same answer. A VaR that moves each run is not checkable.
+    again = monte_carlo_var(r, confidence=0.99, n_simulations=4000)
+    assert again.var == pytest.approx(b.var, rel=1e-12)
+
+
+def test_monte_carlo_reports_simulation_error():
+    from fxrisk.risk.montecarlo import monte_carlo_var
+
+    r, _ = simulate_garch(n=1500, seed=7)
+    small = monte_carlo_var(r, n_simulations=2000, n_boot=100)
+    large = monte_carlo_var(r, n_simulations=20000, n_boot=100)
+
+    assert small.var_stderr > 0
+    # More paths, less simulation error.
+    assert large.var_stderr < small.var_stderr
+
+    lo, hi = large.var_ci95
+    assert lo < large.var < hi
+
+
+def test_monte_carlo_horizon_scaling_is_not_sqrt_time():
+    """
+    The reason Monte Carlo is here rather than sqrt-time scaling:
+    it propagates the variance recursion, so the term structure
+    comes out of the model instead of an iid assumption.
+    """
+    from fxrisk.risk.montecarlo import term_structure
+
+    r, _ = simulate_garch(n=2000, seed=11)
+    ts = term_structure(r, [1, 5, 10], n_simulations=4000)
+
+    assert list(ts.index) == [1, 5, 10]
+    assert ts.loc[10, "mc_var"] > ts.loc[1, "mc_var"]      # risk grows
+    assert ts.loc[10, "mc_var"] < ts.loc[1, "mc_var"] * 10  # sub-linearly
+    assert ts.loc[1, "ratio"] == pytest.approx(1.0, rel=1e-9)
+
+
+def test_fhs_keeps_the_historical_tail_shape():
+    """
+    Filtered historical simulation should differ from a Gaussian
+    bootstrap on fat-tailed data - that difference is the method's
+    entire justification.
+    """
+    from fxrisk.risk.montecarlo import monte_carlo_var
+
+    r, _ = simulate_garch(n=2500, seed=13, nu=3.5)
+    fhs = monte_carlo_var(r, confidence=0.99, method="fhs", n_simulations=8000)
+    boot = monte_carlo_var(r, confidence=0.99, method="bootstrap", n_simulations=8000)
+
+    assert fhs.var > 0 and boot.var > 0
+    assert fhs.var != pytest.approx(boot.var, rel=1e-6)
+
+
+def test_compare_methods_returns_all_three():
+    from fxrisk.risk.montecarlo import compare_methods
+
+    r, _ = simulate_garch(n=1500, seed=17)
+    out = compare_methods(r, n_simulations=3000)
+    assert set(out.index) == {"fhs", "parametric", "bootstrap"}
+    assert out["var"].notna().all()
