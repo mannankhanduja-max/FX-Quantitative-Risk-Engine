@@ -1,0 +1,127 @@
+# Continuous integration.
+#
+# Two things are checked, and the second is the one worth explaining.
+#
+#   tests          The 70-test suite, on three Python versions. It
+#                  needs no market data and no network: every test
+#                  builds its own series, so a fresh clone runs green.
+#
+#   offline-guard  The README claims that `fetch_data.py` is the only
+#                  step that touches the network, and that every
+#                  report afterwards reads a local cache. That claim
+#                  is what makes a result reproducible, so it is
+#                  enforced here rather than left as a promise. If
+#                  someone adds a download inside `fxrisk/`, this job
+#                  fails.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run the suite
+        run: python -m pytest tests/ -q
+
+      - name: Import the package and resolve the universe
+        run: |
+          python - <<'PY'
+          import config, fxrisk
+          names = [i.name for i in config.UNIVERSE]
+          syms = [i.yahoo for i in config.UNIVERSE]
+          assert names and len(names) == len(set(syms)), "duplicate symbols in UNIVERSE"
+          assert set(config.YAHOO_SYMBOLS.values()) == set(syms), "derived views disagree"
+          assert len(config.PAIRS) == len(names), "PAIRS out of step with UNIVERSE"
+          print("universe:", ", ".join(f"{n} ({s})" for n, s in zip(names, syms)))
+          print("sample starts after:", config.UNIVERSE_STARTS_AFTER)
+          PY
+
+  offline-guard:
+    name: no network outside fetch_data.py
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check for network calls in the offline path
+        run: |
+          python - <<'PY'
+          import ast, pathlib, sys
+
+          # These two are allowed to reach the network, and are the
+          # only two. Everything else must run from the local cache.
+          ALLOWED = {"fetch_data.py", "quant_metrics.py"}
+          NETWORK = {
+              "yfinance", "requests", "urllib", "urllib3", "http",
+              "httpx", "aiohttp", "socket", "pandas_datareader",
+          }
+
+          bad = []
+          for path in sorted(pathlib.Path(".").rglob("*.py")):
+              parts = path.parts
+              if any(p in {".venv", "venv", "quant-portfolio"} for p in parts):
+                  continue
+              if str(path) in ALLOWED:
+                  continue
+
+              tree = ast.parse(path.read_text(), filename=str(path))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      mods = [a.name for a in node.names]
+                  elif isinstance(node, ast.ImportFrom):
+                      mods = [node.module or ""]
+                  else:
+                      continue
+                  for m in mods:
+                      if m.split(".")[0] in NETWORK:
+                          bad.append(f"{path}:{node.lineno}: imports {m}")
+
+          if bad:
+              print("Network imports outside the two allowed entry points:")
+              print("\n".join("  " + b for b in bad))
+              print(
+                  "\nThe README states that fetch_data.py is the only step that "
+                  "touches the network and that reports read a local cache. "
+                  "Either move the download into fetch_data.py, or change the "
+                  "README - but do not let the two disagree."
+              )
+              sys.exit(1)
+
+          print("Offline path is clean. Network confined to:", ", ".join(sorted(ALLOWED)))
+          PY

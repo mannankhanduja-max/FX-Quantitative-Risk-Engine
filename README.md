@@ -1,5 +1,7 @@
 # FX Quantitative Risk Engine
 
+[![CI](https://github.com/mannankhanduja-max/FX-Quantitative-Risk-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/mannankhanduja-max/FX-Quantitative-Risk-Engine/actions/workflows/ci.yml)
+
 Volatility modelling, Value at Risk with formal backtesting, Monte
 Carlo simulation and stress testing against dated historical
 episodes — run on **4,918 trading days of real market data**,
