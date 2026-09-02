@@ -39,7 +39,7 @@ So:
 | Correlation ignored in VaR | DCC covariance contracted with weights |
 | Unverified VaR | Kupiec, Christoffersen, Basel traffic light, Lopez loss |
 | No tail analysis | Expected Shortfall alongside every VaR |
-| Daily bars from a vendor | HistData tick data, tick-count-weighted VWAP |
+| Daily bars, no volume | ETF bars with real volume: 20-day VWAP, 9-period EMA |
 | sqrt-time for multi-day risk | Monte Carlo through the variance recursion |
 | "What if markets fall 10%" | Dated replays: Lehman, SNB, CNY, Brexit, COVID, LDI |
 
@@ -342,6 +342,18 @@ current VaR — the framing that lands in a risk meeting.
 
 ## 4. Real data
 
+**The default path is Yahoo Finance.** `python fetch_data.py`
+downloads daily bars for the five ETFs in §5 and writes them to
+`data/yahoo/`. That is the only step that touches the network; every
+report afterwards reads the cache, so results are reproducible and
+the figures in this README were generated from it.
+
+### The HistData path
+
+Retained for spot FX, and the reason `fxrisk/data/histdata.py`
+exists. It is exercised only when `config.UNIVERSE` is switched to
+one of the spot books.
+
 [HistData.com](https://www.histdata.com/download-free-forex-data/)
 provides free tick and 1-minute FX history. Download the ASCII
 archives, unzip one folder per pair:
@@ -398,46 +410,80 @@ that means something and one that does not.
 Defined once, in `config.py`, and read by both pipelines — so the
 two halves of this repository describe the same book.
 
-| Instrument | HistData | Yahoo | History from |
+| Instrument | Symbol | Exposure | History from |
 |---|---|---|---|
-| EUR/USD | `EURUSD` | `EURUSD=X` | 2000-05 |
-| GBP/USD | `GBPUSD` | `GBPUSD=X` | 2000-05 |
-| USD/JPY | `USDJPY` | `USDJPY=X` | 2000-05 |
-| USD/CHF | `USDCHF` | `USDCHF=X` | 2000-05 |
-| GBP/JPY | `GBPJPY` | `GBPJPY=X` | 2002-05 |
+| Euro | `FXE` | EUR/USD | 2005-12 |
+| Pound | `FXB` | GBP/USD | 2006-06 |
+| Yen | `FXY` | JPY/USD | 2007-02 |
+| Swiss franc | `FXF` | CHF/USD | 2006-06 |
+| Gold | `GLD` | XAU/USD | 2004-11 |
 
-`run_risk_report.py` loads the HistData column from local files;
-`quant_metrics.py` downloads the Yahoo column. Neither holds its own
-list. Before this was centralised the engine held four dollar pairs
-while `quant_metrics.py` held gold futures, EUR/USD and GBP/JPY, and
-nothing in the code said which was intended — a test now fails if
-they drift apart again.
+These are exchange-traded currency and metal funds, not spot FX.
+Both pipelines read `config.UNIVERSE`; neither holds its own list,
+and a test fails if they drift apart. `fetch_data.py` is the only
+step that touches the network — everything downstream reads the
+local cache, so a report is reproducible offline.
 
-### Two things worth knowing about this universe
+### Why ETFs rather than spot
 
-**These are not five independent risks.** USD/JPY and USD/CHF are
-both dollar crosses; EUR/USD and USD/CHF have historically been
-close to mirror images; and GBP/JPY shares legs with both GBP/USD
-and USD/JPY. DCC reports that as high conditional correlation, which
-is correct — but an equal-weight portfolio across these five is less
-diversified than "five instruments" suggests. The pairwise table in
-§3 is the place to look before assuming otherwise.
+**One clock.** Spot FX trades 24×5 and the daily "close" is
+whatever cut the vendor chose; equities and ETFs close together at
+16:00 New York. Non-synchronous closes bias measured correlations
+toward zero — the Epps effect — and a correlation model is the one
+thing this repository is built around. On a single exchange clock
+the covariance is measured on returns that actually overlap.
 
-**Adding gold costs you 2008.** `config.UNIVERSE_FX_GOLD` is the
-same book plus spot gold (`XAUUSD` / `XAUUSD=X`), which is a genuine
-diversifier in an FX book — it is the dollar-stress hedge. But
-HistData's XAU/USD starts in **March 2009**, and cleaning drops any
-date where an instrument is missing, so adding it truncates the
-entire sample to 2009 onward. The Lehman and full-GFC stress
-scenarios then report as skipped. That is correct behaviour and a
-real loss, so it is a trade rather than an oversight in either
-direction:
+**Real volume.** Yahoo reports `Volume = 0` on FX spot, so a VWAP
+computed from it is either a division by zero or a TWAP wearing a
+VWAP's name. `fxrisk/indicators.py` raises rather than fabricate a
+weight. ETFs report actual share volume, so the 20-day VWAP and its
+9-period EMA in §3 are genuine.
+
+**Gold without losing 2008.** `GLD` lists in November 2004, so gold
+sits in the default book. The binding constraint is `FXY` at
+2007-02, which is where the usable sample starts: Lehman, the SNB
+floor, the 2015 CNY devaluation, Brexit, March 2020 and the 2022
+LDI episode are all inside it. The spot path had the opposite
+trade — `XAUUSD` starts 2009-03 and adding it truncated the sample
+past the 2008 scenarios entirely.
+
+**What you give up.** An ETF is not the underlying. Each carries an
+expense ratio and tracking error, so multi-year *levels* drift from
+the cross even though daily *returns* track closely; and the bars
+stop at the equity close, so an overnight FX gap lands inside the
+next day's return rather than its own.
+
+### Two things worth knowing about this book
+
+**These are not five independent risks.** `FXE`, `FXB`, `FXY` and
+`FXF` are all dollar crosses, and `FXE`/`FXF` have historically been
+close to mirror images. DCC reports that as high conditional
+correlation, which is correct — but an equal-weight portfolio across
+these five is less diversified than "five instruments" suggests. The
+pairwise table in §3 is the place to look before assuming otherwise.
+
+**GBP/JPY has no direct ETF.** It can be built synthetically as
+`FXB / FXY` — both are quoted per USD, so the ratio is the cross,
+and both trade on the same clock with real volume. It is off by
+default (`config.SYNTHETIC_CROSSES`) because the two expense ratios
+compound into the level.
+
+### Switching universes
+
+The spot books are retained for the HistData path, where local tick
+files are the only source and the 17:00 New York cut is a deliberate
+choice rather than a vendor default:
 
 ```python
 # config.py
-UNIVERSE = UNIVERSE_FX        # default: full history back to 2002
-# UNIVERSE = UNIVERSE_FX_GOLD # gold included, sample starts 2009-03
+UNIVERSE = UNIVERSE_ETF       # default: one clock, real volume, from 2007-02
+# UNIVERSE = UNIVERSE_FX      # spot FX via HistData, back to 2002
+# UNIVERSE = UNIVERSE_FX_GOLD # spot plus gold, sample starts 2009-03
 ```
+
+Nothing downstream hard-codes a symbol, so changing that one line
+changes the whole report — including which stress scenarios are in
+range.
 
 ---
 
@@ -450,11 +496,13 @@ script is still here and still runs standalone:
 python quant_metrics.py
 ```
 
-It pulls daily closes from Yahoo Finance for Gold Futures (`GC=F`),
-EUR/USD (`EURUSD=X`) and GBP/JPY (`GBPJPY=X`), then computes a
-rolling 6-month (126-day) annualised Sharpe ratio and a rolling 95%
-non-parametric historical VaR. Add an instrument by extending its
-`TICKERS` dictionary.
+It pulls daily closes from Yahoo Finance for whatever
+`config.YAHOO_SYMBOLS` resolves to — the five ETFs, by default —
+then computes a rolling 6-month (126-day) annualised Sharpe ratio
+and a rolling 95% non-parametric historical VaR. Change the universe
+in `config.py` and this script follows. It falls back to its own
+hard-coded ticker list only if `config` cannot be imported, so it
+still runs as a standalone file.
 
 It has not been folded into `fxrisk/` because the two answer
 different questions and the comparison is useful. `quant_metrics.py`
