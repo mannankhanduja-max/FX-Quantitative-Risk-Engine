@@ -30,3 +30,7 @@ results/figures/*
 # file, producing multi-megabyte diffs that bury the code changes.
 data/yahoo/*
 !data/yahoo/.gitkeep
+
+# Demo figures. The real ones carry no prefix; keeping both sets
+# invites quoting the simulated numbers by accident.
+docs/figures/DEMO_*
