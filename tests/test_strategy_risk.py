@@ -205,6 +205,22 @@ def test_naive_construction_is_degenerate(garch_returns, flat_heavy_signal):
     The test now checks the mechanism, which is what actually makes
     the construction wrong, rather than a direction that happens to
     depend on the flat share.
+
+    ON THE BOUNDS BELOW. An earlier version of this test asserted
+    that the asset fit is stationary (alpha + beta < 0.995), that
+    the strategy fit is strictly more persistent, and that the VaR
+    ratio exceeds 1.2. Measured across ten seeds, none of those is
+    safe: the asset fit itself lands on the IGARCH boundary on 2 of
+    10, and the VaR ratio spans 1.18 to 1.79. Those bounds sat
+    inside the noise, and CI duly failed on one Python build and
+    passed on the other two - a flaky test asserting a real effect
+    with the wrong margins.
+
+    What IS stable across seeds is the collapse of the degrees of
+    freedom (asset 28-200, strategy 2.1-2.6, never overlapping) and
+    the strategy fit pinning to the boundary (>= 0.9999 on 10 of
+    10). The test asserts those, and asserts only the DIRECTION of
+    the VaR gap.
     """
     from fxrisk.models.garch import fit_garch
 
@@ -213,15 +229,16 @@ def test_naive_construction_is_degenerate(garch_returns, flat_heavy_signal):
     asset_fit = fit_garch(garch_returns, dist="t", mean="zero")
     strat_fit = fit_garch(frame["net"], dist="t", mean="zero")
 
-    # The asset process is stationary; the strategy fit is not.
-    assert asset_fit.alpha + asset_fit.beta < 0.995
-    assert strat_fit.alpha + strat_fit.beta > asset_fit.alpha + asset_fit.beta
+    # The tail shape degenerates - the widest and most stable margin.
+    assert strat_fit.nu < 3.0
+    assert asset_fit.nu > 25.0
+
+    # The strategy fit pins to the IGARCH boundary: shocks never decay.
     assert strat_fit.alpha + strat_fit.beta >= 0.999
 
-    # And the tail shape degenerates.
-    assert strat_fit.nu < asset_fit.nu / 10
-
-    # The two constructions therefore disagree materially.
+    # The two constructions therefore disagree, and in this
+    # direction: the naive one OVERSTATES. Magnitude varies with the
+    # seed (1.18-1.79 measured), so only the direction is asserted.
     correct = st.strategy_var_series(
         flat_heavy_signal, garch_returns, confidence=0.99
     )
@@ -231,7 +248,7 @@ def test_naive_construction_is_degenerate(garch_returns, flat_heavy_signal):
     b = naive["var"][exposed.reindex(naive.index, fill_value=False)].dropna()
     common = a.index.intersection(b.index)
     assert len(common) > 250
-    assert b.loc[common].mean() > 1.2 * a.loc[common].mean()
+    assert b.loc[common].mean() > 1.05 * a.loc[common].mean()
 
 
 def test_flat_days_carry_zero_var(garch_returns, flat_heavy_signal):

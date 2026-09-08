@@ -32,16 +32,25 @@ interleaving zeros with full-size moves doubles the excess
 kurtosis, and the fit absorbs that in two places: the degrees of
 freedom collapse to the floor where the variance of a Student-t is
 barely finite, and persistence is driven to the IGARCH boundary at
-alpha + beta = 1.000, where shocks never decay at all. The
-variance process becomes non-stationary. That inflated variance
-path dominates, and the resulting 99% VaR is about 58% HIGHER than
-the correct construction on the days the strategy is exposed.
+alpha + beta = 1.000, where shocks never decay at all. That
+inflated variance path dominates, and the resulting 99% VaR is
+HIGHER than the correct construction on the days the strategy is
+exposed - by a factor of 1.18 to 1.79 across ten seeds.
 
-So the naive construction is not conservative and it is not
-lenient - it is degenerate, and which way it errs depends on the
-flat share and the asset. That is the reason to avoid it.
-Historical simulation survives the atom untouched, an empirical
-quantile being indifferent to point masses.
+Two honest qualifications. The degrees-of-freedom collapse is the
+stable signature: across those seeds the asset fit lands between
+28 and 200 and the strategy fit between 2.1 and 2.6, never
+overlapping. Persistence is less discriminating than it first
+looks - the ASSET fit also lands on the boundary on 2 of 10 seeds,
+so "the strategy fit is non-stationary and the asset fit is not"
+is too strong a claim; only the strategy fit pins there every
+time. And the magnitude of the VaR gap is seed-dependent, so the
+direction is the finding, not the 58% one particular run produced.
+
+The naive construction is not conservative and it is not lenient -
+it is degenerate. That is the reason to avoid it. Historical
+simulation survives the atom untouched, an empirical quantile
+being indifferent to point masses.
 
 THE CORRECT CONDITIONAL VARIANCE
 ---------------------------------
