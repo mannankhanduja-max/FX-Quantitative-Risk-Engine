@@ -340,6 +340,97 @@ complete.
 `stress_vs_var` expresses each scenario's worst day as a multiple of
 current VaR — the framing that lands in a risk meeting.
 
+### Strategy risk — `fxrisk/risk/strategy.py`
+
+Everything above measures the risk of **holding** these
+instruments. This measures the risk of **running a signal** on
+them, which is a different object:
+
+    r_strat(t) = position(t) * r_asset(t),   position known at t-1
+
+Two consequences follow, and both are easy to get wrong.
+
+**The conditional variance belongs to the asset.** Because the
+position is known at t−1 it is a constant inside the time-t
+conditional distribution, so
+
+    Var(r_strat | F_t-1) = position^2 * Var(r_asset | F_t-1)
+
+The volatility model is therefore fitted to the **asset** and its
+output scaled by the position. `strategy_var_series` does that.
+`naive_strategy_var_series` fits GARCH to the strategy series
+instead — the common error — and is kept so the difference can be
+measured rather than asserted.
+
+**Flat days must leave the backtest.** When the signal is flat the
+return is exactly zero and so is the VaR, which makes a breach
+impossible rather than merely unlikely. Leaving those days in
+inflates Kupiec's expected breach count while the achievable count
+is unchanged, so a correctly calibrated model gets rejected for a
+reason that has nothing to do with the model. `compare_var_construction`
+excludes them by default. The cost — stated, not hidden — is that
+Christoffersen then reads *consecutive in-market days* rather than
+consecutive calendar days.
+
+#### The result, and it is a negative one
+
+On the simulated series in the tests, at a 35% flat share, the
+naive construction degenerates badly: the fitted degrees of freedom
+fall from 200 to 2.4, persistence is driven to the IGARCH boundary
+where shocks never decay, and the resulting 99% VaR is 1.18× to
+1.79× the correct one across ten seeds.
+
+On **this repository's actual VWAP/EMA signal, none of that
+happens.** `sign(ema_gap)` is almost never exactly zero, so the
+strategy is flat on well under 1% of days and holds ±1 the rest of
+the time. With no meaningful point mass, the two fits are
+indistinguishable:
+
+| | flat | asset ν / α+β | strategy ν / α+β |
+|---|---|---|---|
+| FXE | 0.40% | 10.20 / 0.9972 | 9.78 / 0.9973 |
+| FXB | 0.39% | 8.07 / 0.9920 | 7.84 / 0.9920 |
+| FXY | 0.41% | 5.11 / 0.9921 | 4.97 / 0.9933 |
+| FXF | 0.39% | 6.63 / 0.9893 | 6.47 / 0.9893 |
+| GLD | 0.38% | 5.47 / 0.9948 | 5.28 / 0.9951 |
+
+Degrees of freedom differ by 2–3%; persistence agrees to three or
+four decimals. On FXE the two VaR series backtest at 56 breaches
+against 51, both passing coverage and independence.
+
+So for a continuously-invested ±1 signal this distinction is a
+distinction without a difference. The machinery earns its place on
+strategies genuinely **out** of the market a material share of the
+time — a long-only rule with a trend filter, regime gating, a
+volatility target that goes to cash — and saying so is more useful
+than shipping something that never fires without mentioning it.
+
+#### What real data does show: the path risk
+
+| | max drawdown | under water | annualised |
+|---|---|---|---|
+| FXE | −40.78% | 99.4% | — |
+| FXB | −37.47% | 98.8% | −1.30% |
+| FXY | −29.41% | 98.7% | −0.52% |
+| FXF | −34.72% | 97.6% | +0.57% |
+| GLD | −62.40% | 99.4% | −3.35% |
+
+Four of five lose money and all five spend essentially the whole
+sample below their prior peak. **This signal has no edge**, and the
+numbers above are still optimistic: its parameters were chosen over
+this same sample, so the backtest-only warning in §10 binds harder
+here than anywhere else in this repository.
+
+That is why `drawdown_profile` reports duration and time under
+water rather than depth alone. A 12% drawdown recovered in three
+weeks and a 12% drawdown that takes fourteen months are the same
+number and a completely different experience — only one of them
+ends a mandate. And it is why the strategy layer sits here at all:
+the point was never to present a profitable rule, but to measure
+one honestly enough to establish that it is not.
+
+---
+
 ---
 
 ## 4. Real data
@@ -529,15 +620,21 @@ repository.
 fx-risk-engine/
 ├── quant_metrics.py             # original rolling Sharpe/VaR pipeline
 ├── config.py                    # every parameter
+├── fetch_data.py                # the only step that touches the network
 ├── run_risk_report.py           # the pipeline
 ├── fxrisk/
-│   ├── data/histdata.py         # tick + M1 loaders, VWAP, sessions
+│   ├── indicators.py            # rolling VWAP, EMA, shifted signal
+│   ├── data/
+│   │   ├── yahoo.py             # cache reader, no network
+│   │   └── histdata.py          # tick + M1 loaders, VWAP, sessions
 │   ├── models/
 │   │   ├── ewma.py              # RiskMetrics EWMA
 │   │   ├── garch.py             # GARCH(1,1), normal or Student-t
 │   │   └── dcc.py               # DCC-GARCH
 │   └── risk/
 │       ├── var.py               # VaR + Expected Shortfall
+│       ├── montecarlo.py        # FHS, parametric, bootstrap; term structure
+│       ├── strategy.py          # risk of RUNNING a signal (§3)
 │       ├── performance.py       # Sharpe, Sortino, drawdown
 │       ├── correlation.py       # pairwise static vs EWMA vs DCC
 │       ├── backtesting.py       # Kupiec, Christoffersen, Basel
@@ -546,8 +643,11 @@ fx-risk-engine/
 │   ├── diagrams/                # hand-drawn SVG: how the pieces fit
 │   ├── figures/                 # generated from model output
 │   └── make_figures.py          # regenerates docs/figures/
-├── tests/test_risk_engine.py    # 56 tests
-└── quant-portfolio/             # vendored, see §7
+├── tests/
+│   ├── test_risk_engine.py      # 70 tests
+│   └── test_strategy_risk.py    # 12 tests
+├── .github/workflows/ci.yml     # suite on 3.10-3.12 + offline guard
+└── quant-portfolio/             # see §9
 ```
 
 ---
@@ -570,12 +670,43 @@ by eye:
 - **Component VaR sums to total VaR** (Euler's theorem).
 - **Stress replay reports partial coverage** instead of hiding it.
 - **VWAP refuses to pass off a TWAP as a VWAP.**
+- **A day-one loss shows up as a drawdown** — see below.
 
 Bugs found by writing these tests rather than by reading the code:
 the Basel zone being applied below 99%; Lopez loss collapsing into
 a plain breach count on decimal returns (the quadratic term is
-~1e-4 against a constant of 1); and two test assertions that were
-themselves statistically unsound.
+~1e-4 against a constant of 1); two test assertions that were
+themselves statistically unsound; and the drawdown peak starting at
+the wrong place.
+
+### Two things the strategy tests caught in my own work
+
+**The drawdown peak.** `drawdown_profile` took the running maximum
+of the equity curve, whose first value is already after the first
+return — so the starting capital was never a peak, and a strategy
+that opened by losing half its money reported a drawdown of zero.
+Caught by a test asserting that −50% followed by +50% is a 25% loss
+rather than flat. The fix floors the running peak at initial
+capital and is a no-op whenever the first move is upward.
+
+**A claim that was backwards.** The strategy module argues that
+fitting GARCH to a flat-heavy strategy series is wrong. I first
+wrote that the flat days look calm and drag the variance *down*, so
+the naive VaR comes out too low. The unconditional standard
+deviation does fall — but the measured VaR is 1.18× to 1.79×
+*higher*, because the atom at zero doubles the excess kurtosis,
+which collapses the fitted degrees of freedom and pins persistence
+to the IGARCH boundary. The docstring now carries the measured
+table and the test checks the mechanism.
+
+CI then caught me overreaching on the correction: it failed on
+Python 3.11 while passing on 3.10 and 3.12, the signature of a
+threshold sitting inside the noise. A ten-seed sweep showed the
+*asset* fit also lands on the IGARCH boundary 2 times in 10, so
+"the strategy fit is non-stationary and the asset fit is not" was
+too strong, and a bound of 1.2× sat inside a range spanning
+1.18–1.79. The test now asserts only what holds with a wide
+margin.
 
 ### The leak the first version of these tests missed
 
@@ -635,6 +766,13 @@ prediction and not investment advice.
 - **Passing a VaR backtest means adequate calibration over one
   sample.** It does not transfer to a different period, a different
   book, or a different market.
+- **The strategy layer is the worst offender, and knows it.** The
+  VWAP window and EMA span in §3 were chosen over the same sample
+  they are evaluated on. Its reported drawdowns are therefore
+  optimistic, not conservative. That the rule still loses money on
+  four of five instruments is the finding; a version of it that
+  looked profitable would have needed a great deal more scepticism
+  than this repository applies.
 - **Model risk is not quantified.** GARCH and DCC are assumptions.
   Their parameters carry estimation error the reported figures do
   not show, and stage-2 DCC standard errors ignore stage-1 error
