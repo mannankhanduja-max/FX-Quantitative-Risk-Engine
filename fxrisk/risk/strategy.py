@@ -57,12 +57,21 @@ WHEN NONE OF THIS MATTERS - MEASURED, NOT ASSUMED
 Everything above depends on the flat share being large. Run on
 this repository's own VWAP/EMA signal over the five ETFs, it is
 not: `sign(ema_gap)` is almost never exactly zero, so the strategy
-is flat on 0.4% of days and holds +/-1 the rest of the time. With
-no meaningful atom, the two constructions agree - on FXE the
-fitted degrees of freedom are 10.20 for the asset against 9.78 for
-the strategy, persistence is 0.9972 against 0.9973, and the
-backtests are 56 breaches against 51 with both passing coverage
-and independence.
+is flat on well under 1% of days and holds +/-1 the rest of the
+time. With no meaningful atom, the two fits are indistinguishable
+across the whole universe:
+
+              flat     asset nu / a+b     strategy nu / a+b
+    FXE       0.40%     10.20 / 0.9972      9.78 / 0.9973
+    FXB       0.39%      8.07 / 0.9920      7.84 / 0.9920
+    FXY       0.41%      5.11 / 0.9921      4.97 / 0.9933
+    FXF       0.39%      6.63 / 0.9893      6.47 / 0.9893
+    GLD       0.38%      5.47 / 0.9948      5.28 / 0.9951
+
+Degrees of freedom differ by 2-3% and persistence agrees to three
+or four decimals - against a simulated 35% flat share, where nu
+falls from 200 to 2.4. On FXE the two VaR series then backtest at
+56 breaches against 51, both passing coverage and independence.
 
 So for a continuously-invested +/-1 signal this module's central
 distinction is a distinction without a difference, and saying so
@@ -75,9 +84,22 @@ exercises it at a 35% flat share, where the effect is large.
 
 The parts that matter regardless of flat share are the drawdown
 profile and the loss attribution - and on real data they are the
-finding. The VWAP/EMA rule spends 99.4% of the sample under water
-with a 40.8% maximum drawdown on FXE, which is what a signal with
-no edge looks like once you stop reporting only its Sharpe.
+finding:
+
+              max drawdown   under water   annualised
+    FXE          -40.78%        99.4%          -
+    FXB          -37.47%        98.8%       -1.30%
+    FXY          -29.41%        98.7%       -0.52%
+    FXF          -34.72%        97.6%       +0.57%
+    GLD          -62.40%        99.4%       -3.35%
+
+Four of five lose money, all five spend essentially the entire
+sample below their prior peak, and that is BEFORE any correction
+for the signal parameters having been chosen over this same
+sample. This is what a rule with no edge looks like once you stop
+reporting only its Sharpe ratio - and it is the reason the
+drawdown profile sits in this module rather than the performance
+one.
 
 THE CORRECT CONDITIONAL VARIANCE
 ---------------------------------
