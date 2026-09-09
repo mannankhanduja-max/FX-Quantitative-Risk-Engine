@@ -1,91 +1,131 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" role="img" aria-label="End-to-end pipeline: HistData tick files become daily returns, feed three volatility models, which feed VaR estimators, backtests and stress replay.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 500" width="840" height="500" role="img" aria-label="End-to-end pipeline: Yahoo ETF bars become daily returns, feed three volatility models, which feed VaR estimators, backtests and stress replay; a second row applies the VWAP/EMA signal and measures strategy risk from the asset variance.">
   <defs>
-    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/>
     </marker>
-    <marker id="a1b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="p1b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#1f4e79"/>
     </marker>
+    <marker id="p1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7a8089"/>
+    </marker>
   </defs>
-  <rect x="0" y="0" width="900" height="400" fill="#ffffff"/>
-  <rect x="0.5" y="0.5" width="899" height="399" fill="none" stroke="#d8dbe0"/>
+  <rect x="0" y="0" width="840" height="500" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="839" height="499" fill="none" stroke="#d8dbe0"/>
   <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">
 
     <text x="24" y="30" font-size="13" font-weight="bold">Pipeline</text>
     <text x="24" y="48" font-size="11" fill="#5f6570">Every arrow moves data forward in time only. Nothing reads a return it is forecasting.</text>
 
-    <!-- DATA -->
-    <text x="24" y="82" font-size="11" font-weight="bold" fill="#1f4e79">DATA</text>
-    <rect x="24" y="92" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
-    <text x="34" y="110" font-size="11">HistData tick / M1</text>
-    <text x="34" y="126" font-size="10" fill="#5f6570">volume column = 0</text>
+    <!-- ================= DATA ================= -->
+    <text x="24" y="80" font-size="11" font-weight="bold" fill="#1f4e79">DATA</text>
+    <rect x="24" y="90" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="108" font-size="11">fetch_data.py</text>
+    <text x="34" y="124" font-size="10" fill="#5f6570">the only network step</text>
 
-    <rect x="24" y="158" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
-    <text x="34" y="176" font-size="11">ticks_to_bars</text>
-    <text x="34" y="192" font-size="10" fill="#5f6570">tick_count = volume proxy</text>
+    <rect x="24" y="152" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="170" font-size="11">data/yahoo cache</text>
+    <text x="34" y="186" font-size="10" fill="#5f6570">5 ETFs, real share volume</text>
 
-    <rect x="24" y="224" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
-    <text x="34" y="242" font-size="11">to_daily</text>
-    <text x="34" y="258" font-size="10" fill="#5f6570">cut at 17:00 New York</text>
+    <rect x="24" y="214" width="160" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="232" font-size="11">daily returns</text>
+    <text x="34" y="248" font-size="10" fill="#5f6570">one exchange clock</text>
 
-    <line x1="104" y1="138" x2="104" y2="156" stroke="#1a1a1a" marker-end="url(#a1)"/>
-    <line x1="104" y1="204" x2="104" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <line x1="104" y1="136" x2="104" y2="150" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <line x1="104" y1="198" x2="104" y2="212" stroke="#1a1a1a" marker-end="url(#p1)"/>
 
-    <!-- MODELS -->
-    <text x="248" y="82" font-size="11" font-weight="bold" fill="#1f4e79">VOLATILITY MODELS</text>
-    <rect x="248" y="92" width="180" height="40" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
-    <text x="258" y="116" font-size="11">EWMA  λ = 0.94</text>
+    <rect x="24" y="276" width="160" height="42" rx="3" fill="#ffffff" stroke="#7a8089" stroke-dasharray="4 3"/>
+    <text x="34" y="293" font-size="10" fill="#5f6570">HistData path, retained</text>
+    <text x="34" y="308" font-size="10" fill="#5f6570">spot FX, 17:00 New York</text>
 
-    <rect x="248" y="144" width="180" height="40" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
-    <text x="258" y="168" font-size="11">GARCH(1,1) Student-t</text>
+    <!-- ================= MODELS ================= -->
+    <text x="228" y="80" font-size="11" font-weight="bold" fill="#1f4e79">VOLATILITY MODELS</text>
+    <rect x="228" y="90" width="170" height="40" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="238" y="114" font-size="11">EWMA  λ = 0.94</text>
 
-    <rect x="248" y="196" width="180" height="52" rx="3" fill="#ffffff" stroke="#1f4e79" stroke-width="2"/>
-    <text x="258" y="216" font-size="11" fill="#1f4e79" font-weight="bold">DCC-GARCH</text>
-    <text x="258" y="232" font-size="10" fill="#5f6570">walk-forward H_t</text>
+    <rect x="228" y="146" width="170" height="40" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="238" y="170" font-size="11">GARCH(1,1) Student-t</text>
 
-    <line x1="184" y1="247" x2="246" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
-    <text x="188" y="262" font-size="9" fill="#5f6570">daily returns</text>
+    <rect x="228" y="202" width="170" height="58" rx="3" fill="#ffffff" stroke="#1f4e79" stroke-width="2"/>
+    <text x="238" y="222" font-size="11" fill="#1f4e79" font-weight="bold">DCC-GARCH</text>
+    <text x="238" y="240" font-size="10" fill="#5f6570">walk-forward H_t</text>
+    <text x="238" y="254" font-size="10" fill="#5f6570">refit every 126 days</text>
 
-    <!-- RISK -->
-    <text x="492" y="82" font-size="11" font-weight="bold" fill="#1f4e79">RISK</text>
-    <rect x="492" y="92" width="180" height="86" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
-    <text x="502" y="112" font-size="11" font-weight="bold">VaR + ES</text>
-    <text x="502" y="130" font-size="10" fill="#5f6570">historical, normal,</text>
-    <text x="502" y="145" font-size="10" fill="#5f6570">ewma, garch_t,</text>
-    <text x="502" y="160" font-size="10" fill="#5f6570">cornish_fisher,</text>
-    <text x="502" y="172" font-size="10" fill="#1f4e79">dcc_portfolio</text>
+    <line x1="184" y1="230" x2="226" y2="176" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <text x="188" y="248" font-size="9" fill="#5f6570">returns</text>
 
-    <rect x="492" y="196" width="180" height="52" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
-    <text x="502" y="216" font-size="11" font-weight="bold">Pairwise correlation</text>
-    <text x="502" y="234" font-size="10" fill="#5f6570">sample / EWMA / DCC range</text>
+    <!-- ================= RISK ================= -->
+    <text x="442" y="80" font-size="11" font-weight="bold" fill="#1f4e79">RISK</text>
+    <rect x="442" y="90" width="180" height="88" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="452" y="110" font-size="11" font-weight="bold">VaR + ES</text>
+    <text x="452" y="128" font-size="10" fill="#5f6570">historical, normal,</text>
+    <text x="452" y="143" font-size="10" fill="#5f6570">ewma, garch_t,</text>
+    <text x="452" y="158" font-size="10" fill="#5f6570">cornish_fisher,</text>
+    <text x="452" y="172" font-size="10" fill="#1f4e79">dcc_portfolio</text>
 
-    <rect x="492" y="264" width="180" height="52" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
-    <text x="502" y="284" font-size="11" font-weight="bold">Performance</text>
-    <text x="502" y="302" font-size="10" fill="#5f6570">Sharpe, Sortino, drawdown</text>
+    <rect x="442" y="194" width="180" height="46" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="452" y="212" font-size="11" font-weight="bold">Pairwise correlation</text>
+    <text x="452" y="229" font-size="10" fill="#5f6570">sample / EWMA / DCC</text>
 
-    <line x1="428" y1="112" x2="490" y2="120" stroke="#1a1a1a" marker-end="url(#a1)"/>
-    <line x1="428" y1="164" x2="490" y2="145" stroke="#1a1a1a" marker-end="url(#a1)"/>
-    <line x1="428" y1="222" x2="490" y2="170" stroke="#1f4e79" stroke-width="2" marker-end="url(#a1b)"/>
-    <text x="432" y="196" font-size="9" fill="#1f4e79">w^T H_t w</text>
-    <line x1="428" y1="230" x2="490" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <rect x="442" y="256" width="180" height="46" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="452" y="274" font-size="11" font-weight="bold">Monte Carlo</text>
+    <text x="452" y="291" font-size="10" fill="#5f6570">FHS, term structure</text>
 
-    <!-- VERDICT -->
-    <text x="736" y="82" font-size="11" font-weight="bold" fill="#1f4e79">VERDICT</text>
-    <rect x="736" y="92" width="140" height="86" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
-    <text x="746" y="112" font-size="11" font-weight="bold">Backtests</text>
-    <text x="746" y="130" font-size="10" fill="#5f6570">Kupiec</text>
-    <text x="746" y="145" font-size="10" fill="#5f6570">Christoffersen</text>
-    <text x="746" y="160" font-size="10" fill="#5f6570">Basel, Lopez</text>
-    <text x="746" y="173" font-size="10" fill="#1a6b3c">pass / fail</text>
+    <line x1="398" y1="110" x2="440" y2="118" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <line x1="398" y1="166" x2="440" y2="145" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <line x1="398" y1="228" x2="440" y2="170" stroke="#1f4e79" stroke-width="2" marker-end="url(#p1b)"/>
+    <text x="402" y="200" font-size="9" fill="#1f4e79">wᵀH w</text>
+    <line x1="398" y1="240" x2="440" y2="216" stroke="#1a1a1a" marker-end="url(#p1)"/>
 
-    <rect x="736" y="196" width="140" height="52" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
-    <text x="746" y="216" font-size="11" font-weight="bold">Stress replay</text>
-    <text x="746" y="234" font-size="10" fill="#5f6570">7 dated episodes</text>
+    <!-- ================= VERDICT ================= -->
+    <text x="666" y="80" font-size="11" font-weight="bold" fill="#1f4e79">VERDICT</text>
+    <rect x="666" y="90" width="150" height="88" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="676" y="110" font-size="11" font-weight="bold">Backtests</text>
+    <text x="676" y="128" font-size="10" fill="#5f6570">Kupiec</text>
+    <text x="676" y="143" font-size="10" fill="#5f6570">Christoffersen</text>
+    <text x="676" y="158" font-size="10" fill="#5f6570">Basel, Lopez</text>
+    <text x="676" y="172" font-size="10" fill="#1a6b3c">pass / fail</text>
 
-    <line x1="672" y1="134" x2="734" y2="134" stroke="#1a1a1a" marker-end="url(#a1)"/>
-    <text x="676" y="128" font-size="9" fill="#5f6570">realised vs forecast</text>
-    <line x1="672" y1="222" x2="734" y2="222" stroke="#1a1a1a" marker-end="url(#a1)"/>
+    <rect x="666" y="194" width="150" height="46" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="676" y="212" font-size="11" font-weight="bold">Stress replay</text>
+    <text x="676" y="229" font-size="10" fill="#5f6570">7 dated episodes</text>
 
-    <text x="24" y="330" font-size="10" fill="#5f6570">Backtest-only. Nothing here is a prediction.</text>
+    <line x1="622" y1="134" x2="664" y2="134" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <line x1="622" y1="216" x2="664" y2="216" stroke="#1a1a1a" marker-end="url(#p1)"/>
+
+    <!-- ================= SECOND ROW: STRATEGY ================= -->
+    <line x1="24" y1="342" x2="816" y2="342" stroke="#d8dbe0"/>
+    <text x="24" y="364" font-size="11" font-weight="bold" fill="#1f4e79">STRATEGY LAYER</text>
+    <text x="216" y="364" font-size="10" fill="#5f6570">risk of RUNNING a signal, not of holding the asset</text>
+
+    <rect x="24" y="376" width="160" height="56" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="34" y="394" font-size="11">VWAP 20d × EMA 9</text>
+    <text x="34" y="410" font-size="10" fill="#5f6570">real share volume</text>
+    <text x="34" y="424" font-size="10" fill="#5f6570">signal shifted 1 bar</text>
+
+    <rect x="228" y="376" width="170" height="56" rx="3" fill="#ffffff" stroke="#1a1a1a"/>
+    <text x="238" y="394" font-size="11">position × asset return</text>
+    <text x="238" y="410" font-size="10" fill="#5f6570">turnover, costs at 2bp</text>
+    <text x="238" y="424" font-size="10" fill="#5f6570">flat 0.4% of days here</text>
+
+    <rect x="442" y="376" width="180" height="56" rx="3" fill="#ffffff" stroke="#1f4e79" stroke-width="2"/>
+    <text x="452" y="394" font-size="11" fill="#1f4e79" font-weight="bold">Strategy VaR</text>
+    <text x="452" y="410" font-size="10" fill="#5f6570">position² · Var(asset)</text>
+    <text x="452" y="424" font-size="10" fill="#5f6570">flat days out of the test</text>
+
+    <rect x="666" y="376" width="150" height="56" rx="3" fill="#f4f5f7" stroke="#1a1a1a"/>
+    <text x="676" y="394" font-size="11" font-weight="bold">Path risk</text>
+    <text x="676" y="410" font-size="10" fill="#5f6570">drawdown depth</text>
+    <text x="676" y="424" font-size="10" fill="#5f6570">and duration</text>
+
+    <line x1="104" y1="318" x2="104" y2="374" stroke="#7a8089" marker-end="url(#p1g)"/>
+    <line x1="184" y1="404" x2="226" y2="404" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <line x1="398" y1="404" x2="440" y2="404" stroke="#1a1a1a" marker-end="url(#p1)"/>
+    <line x1="622" y1="404" x2="664" y2="404" stroke="#1a1a1a" marker-end="url(#p1)"/>
+
+    <path d="M 313,260 L 313,326 L 532,326 L 532,374" fill="none" stroke="#1f4e79" stroke-width="2" marker-end="url(#p1b)"/>
+    <text x="322" y="321" font-size="9" fill="#1f4e79">fitted to the ASSET, scaled by the position</text>
+
+    <text x="24" y="464" font-size="10" fill="#5f6570">Backtest-only. Nothing here is a prediction.</text>
   </g>
 </svg>

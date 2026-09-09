@@ -101,8 +101,8 @@ Monte Carlo at 99%, 20,000 paths: 1-day VaR **1.41%**, 10-day
 ---
 
 <figure>
-<img src="docs/diagrams/01-pipeline.svg" alt="End-to-end pipeline: HistData tick files become daily returns cut at the New York close, feed three volatility models, and drive VaR, backtests, correlation and stress replay." width="100%">
-<figcaption><sub>End-to-end pipeline: HistData tick files become daily returns cut at the New York close, feed three volatility models, and drive VaR, backtests, correlation and stress replay.</sub></figcaption>
+<img src="docs/diagrams/01-pipeline.svg" alt="Pipeline: the Yahoo cache of ETF bars becomes daily returns on one exchange clock, feeds three volatility models, and drives VaR, backtests, correlation and stress replay. A second row applies the VWAP/EMA signal and measures strategy risk, fitting the variance model to the asset and scaling it by the position." width="100%">
+<figcaption><sub>Pipeline: the Yahoo cache of ETF bars becomes daily returns on one exchange clock, feeds three volatility models, and drives VaR, backtests, correlation and stress replay. A second row applies the VWAP/EMA signal and measures strategy risk, fitting the variance model to the asset and scaling it by the position.</sub></figcaption>
 </figure>
 
 ---
@@ -392,8 +392,8 @@ TWAP, names the series `twap`, and emits a `RuntimeWarning`. A TWAP
 is a legitimate benchmark; calling it a VWAP is not.
 
 <figure>
-<img src="docs/diagrams/06-vwap-volume.svg" alt="Every HistData Volume field is zero, so a volume filter silently discards every row. Tick counts restore a real VWAP; M1 bars fall back to a TWAP that is labelled as one." width="100%">
-<figcaption><sub>Every HistData Volume field is zero, so a volume filter silently discards every row. Tick counts restore a real VWAP; M1 bars fall back to a TWAP that is labelled as one.</sub></figcaption>
+<img src="docs/diagrams/06-vwap-volume.svg" alt="Volume decides whether a VWAP exists at all. FX spot on Yahoo and HistData both report zero, so rolling_vwap raises rather than divide by zero and the tick path substitutes a tick-count proxy. ETFs report real share volume, which is the default and what the 20-day VWAP, its 9-period EMA and the one-bar-shifted signal are built from." width="100%">
+<figcaption><sub>Volume decides whether a VWAP exists at all. FX spot on Yahoo and HistData both report zero, so rolling_vwap raises rather than divide by zero and the tick path substitutes a tick-count proxy. ETFs report real share volume, which is the default and what the 20-day VWAP, its 9-period EMA and the one-bar-shifted signal are built from.</sub></figcaption>
 </figure>
 
 
