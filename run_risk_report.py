@@ -27,6 +27,7 @@ import config
 from fxrisk.data import yahoo
 from fxrisk import indicators
 from fxrisk.risk.montecarlo import compare_methods, term_structure
+from fxrisk.risk import strategy as strat
 from fxrisk.data.histdata import daily_returns, load_m1, load_ticks, ticks_to_bars, to_daily
 from fxrisk.models.dcc import fit_dcc
 from fxrisk.models.ewma import (
@@ -260,6 +261,92 @@ def main() -> int:
                 print()
             except ValueError as exc:
                 print(f"{name} ({sym}): {exc}\n")
+
+    if args.source == "yahoo" and not args.demo:
+        _header("STRATEGY RISK: THE VWAP/EMA SIGNAL")
+        print("Everything above measures the risk of HOLDING these")
+        print("instruments. This measures the risk of RUNNING the VWAP/EMA")
+        print("signal on them, which is a different object:\n")
+        print("    r_strat(t) = position(t) * r_asset(t),  position known at t-1\n")
+        print("Two consequences. A flat day returns exactly zero, so the")
+        print("distribution carries an atom no continuous density describes.")
+        print("And because the position is known at t-1 it is a constant")
+        print("inside the time-t distribution, so the volatility model belongs")
+        print("on the ASSET and the position scales its output.\n")
+        print("The comparison below is the point: 'position_scaled_garch' does")
+        print("that, 'naive_garch_on_strategy' fits GARCH to the strategy")
+        print("series instead - the common error.\n")
+        print("A NOTE ON WHAT THIS SHOWS. On this particular signal the")
+        print("flat share is tiny - sign(ema_gap) is almost never exactly")
+        print("zero - so the two constructions will agree. That is the")
+        print("honest result, not a failure: the distinction matters for")
+        print("strategies genuinely OUT of the market a material share of")
+        print("the time, and this one is not. The drawdown and attribution")
+        print("below matter regardless.\n")
+        print("BACKTEST-ONLY, AND MORE SO HERE. The signal parameters were")
+        print("chosen over this same sample, so any performance number below")
+        print("is optimistic in a way the asset-level VaR results are not.")
+        print("The RISK machinery is what is being demonstrated, not an edge.\n")
+
+        for name, sym in yahoo_symbols.items():
+            try:
+                bars = yahoo.load_symbol(sym)
+                sig = indicators.signal(
+                    bars,
+                    window=config.VWAP_WINDOW_DAILY,
+                    span=config.VWAP_EMA_SPAN,
+                )
+                aret = bars["Close"].pct_change(fill_method=None).dropna()
+                frame = strat.strategy_returns(
+                    sig, aret, cost_per_turn=config.COST_PER_TURN
+                )
+
+                ex = strat.exposure_summary(frame["position"])
+                print(f"{name} ({sym})")
+                print(f"  exposure    flat {ex['flat_share']:.1%} | "
+                      f"long {ex['long_share']:.1%} | short {ex['short_share']:.1%} | "
+                      f"{ex['flips']} flips")
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    afit = fit_garch(aret, dist="t", mean="zero")
+                    sfit = fit_garch(frame["net"], dist="t", mean="zero")
+                print(f"  asset fit   nu {afit.nu:7.2f}   alpha+beta {afit.alpha + afit.beta:.4f}")
+                print(f"  strat fit   nu {sfit.nu:7.2f}   alpha+beta {sfit.alpha + sfit.beta:.4f}")
+                if sfit.nu < afit.nu / 5:
+                    print("              the degrees of freedom collapse - the atom at")
+                    print("              zero reads as a fat tail rather than absence")
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    tbl, _ = strat.compare_var_construction(
+                        sig, aret,
+                        confidence=0.99,
+                        cost_per_turn=config.COST_PER_TURN,
+                        in_market_only=True,
+                        refit_every=config.STRATEGY_REFIT_EVERY,
+                    )
+                if not tbl.empty:
+                    print(f"  VaR backtest at 99%, in-market days only "
+                          f"(flat {tbl.attrs['flat_share']:.1%} excluded):")
+                    for line in tbl.to_string().splitlines():
+                        print("    " + line)
+                    print("    flat days are excluded because a breach is impossible")
+                    print("    when both the return and the VaR are zero; leaving them")
+                    print("    in inflates the expected count but not the achievable one")
+
+                dd = strat.drawdown_profile(frame["net"])
+                print("  drawdown")
+                print(dd.summary())
+
+                att = strat.loss_attribution(frame)
+                if att.get("losing_days"):
+                    print(f"  losses      {att['losing_days']} losing days, of which "
+                          f"{att['cost_only_days']} ({att['cost_only_share']:.0%}) lost only")
+                    print(f"              to turnover cost, not to being wrong-way")
+                print()
+            except Exception as exc:  # noqa: BLE001
+                print(f"{name} ({sym}): strategy risk unavailable - {exc}\n")
 
     _header("MONTE CARLO VaR")
     print(f"{config.MC_SIMULATIONS:,} paths, seed fixed.\n")

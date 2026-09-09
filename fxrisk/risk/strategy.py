@@ -52,6 +52,33 @@ it is degenerate. That is the reason to avoid it. Historical
 simulation survives the atom untouched, an empirical quantile
 being indifferent to point masses.
 
+WHEN NONE OF THIS MATTERS - MEASURED, NOT ASSUMED
+--------------------------------------------------
+Everything above depends on the flat share being large. Run on
+this repository's own VWAP/EMA signal over the five ETFs, it is
+not: `sign(ema_gap)` is almost never exactly zero, so the strategy
+is flat on 0.4% of days and holds +/-1 the rest of the time. With
+no meaningful atom, the two constructions agree - on FXE the
+fitted degrees of freedom are 10.20 for the asset against 9.78 for
+the strategy, persistence is 0.9972 against 0.9973, and the
+backtests are 56 breaches against 51 with both passing coverage
+and independence.
+
+So for a continuously-invested +/-1 signal this module's central
+distinction is a distinction without a difference, and saying so
+is more useful than quietly shipping machinery that never fires.
+It earns its place on strategies that are genuinely OUT of the
+market a material fraction of the time: a long-only rule with a
+trend filter, regime gating, a volatility-target that goes to
+cash, anything with a no-trade band. `tests/test_strategy_risk.py`
+exercises it at a 35% flat share, where the effect is large.
+
+The parts that matter regardless of flat share are the drawdown
+profile and the loss attribution - and on real data they are the
+finding. The VWAP/EMA rule spends 99.4% of the sample under water
+with a 40.8% maximum drawdown on FXE, which is what a signal with
+no edge looks like once you stop reporting only its Sharpe.
+
 THE CORRECT CONDITIONAL VARIANCE
 ---------------------------------
 Because the position is known at t-1, it is a constant inside the
@@ -263,6 +290,7 @@ def compare_var_construction(
     confidence: float = 0.99,
     cost_per_turn: float = 0.0,
     in_market_only: bool = True,
+    refit_every: int = 21,
 ) -> tuple[pd.DataFrame, list[BacktestResult]]:
     """
     Both constructions, plus historical simulation, through one backtest.
@@ -291,8 +319,12 @@ def compare_var_construction(
     frame = strategy_returns(signal, asset_returns, cost_per_turn=cost_per_turn)
     realised = frame["net"]
 
-    correct = strategy_var_series(signal, asset_returns, confidence=confidence)
-    naive = naive_strategy_var_series(realised, confidence=confidence)
+    correct = strategy_var_series(
+        signal, asset_returns, confidence=confidence, refit_every=refit_every
+    )
+    naive = naive_strategy_var_series(
+        realised, confidence=confidence, refit_every=refit_every
+    )
     hist = _rolling_historical(realised, confidence=confidence, window=500)
 
     exposed = frame["position"] != 0

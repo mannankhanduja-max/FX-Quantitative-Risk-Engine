@@ -242,6 +242,23 @@ VWAP_EMA_SPAN = 9
 # MONTE CARLO
 # ============================================================
 
+# ---- Strategy risk ----
+#
+# Cost charged per unit of turnover, one-way, as a fraction of
+# notional. 2bp is a defensible retail-to-institutional round
+# number for a liquid US-listed ETF; it is an ASSUMPTION, not a
+# measurement, and the cost-only share of losing days in the report
+# is sensitive to it.
+COST_PER_TURN = 0.0002
+
+# Walk-forward GARCH refit interval for the strategy section only.
+# Coarser than the 21 used elsewhere because this section fits two
+# models per instrument and the strategy-series fit converges
+# slowly - it pins to the IGARCH boundary, where the optimiser has
+# no interior optimum to find. Accuracy for runtime, stated here
+# rather than buried in a call site.
+STRATEGY_REFIT_EVERY = 63
+
 MC_SIMULATIONS = 20000
 
 # Horizons in trading days. Monte Carlo is the honest way to get a
