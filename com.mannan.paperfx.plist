@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily Alpaca paper run, weekdays at 21:30 local time.
+
+  21:30 in Glasgow is 16:30 New York while both are on summer time,
+  i.e. half an hour after the US close - late enough that the
+  consolidated close is settled, early enough to be the same
+  session. For the two or three weeks a year when UK and US clock
+  changes fall out of step this drifts by an hour; it runs
+  post-close either way, so for a paper test that is acceptable
+  rather than correct. If it ever matters, switch to a UTC schedule
+  and handle the ET offset in the script.
+
+  Saturday and Sunday are omitted: no session, nothing to do.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mannan.paperfx</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>$HOME/fx-risk-engine/run_paper_daily.sh</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+
+  <!-- Missed runs (laptop asleep at 21:30) fire on next wake. -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/paperfx.out</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/paperfx.err</string>
+</dict>
+</plist>
