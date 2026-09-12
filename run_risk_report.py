@@ -141,7 +141,7 @@ def main() -> int:
     parser.add_argument(
         "--source",
         choices=("histdata", "yahoo"),
-        default="histdata",
+        default="yahoo",
         help="yahoo reads the local cache written by fetch_data.py",
     )
     parser.add_argument("--data-dir", default=config.DATA_DIR)

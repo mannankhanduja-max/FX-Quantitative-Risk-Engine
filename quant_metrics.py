@@ -3,7 +3,15 @@ import sys
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
+try:
+    import yfinance as yf
+except ModuleNotFoundError:  # pragma: no cover - environment, not logic
+    raise SystemExit(
+        "yfinance is not installed, and this script downloads from Yahoo.\n"
+        "  pip install -r requirements.txt\n\n"
+        "The risk engine itself needs no network and no yfinance:\n"
+        "  python run_risk_report.py --demo"
+    )
 
 # The instrument universe is defined once, in config.py, and shared
 # with the fxrisk engine so both halves of this repository describe

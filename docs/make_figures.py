@@ -1,8 +1,13 @@
 """
 Regenerate the figures in docs/figures/ from live model output.
 
+    python docs/make_figures.py
     python docs/make_figures.py --demo
-    python docs/make_figures.py --data-dir data/histdata
+    python docs/make_figures.py --source histdata --data-dir data/histdata
+
+The default source is the Yahoo cache, matching run_risk_report.py
+and the ETF universe in config.py. The HistData path is still here
+but needs --source histdata and local tick files.
 
 Every figure here is drawn from a model run, not hand-authored, so
 the pictures cannot drift away from what the code does. Re-run this
@@ -278,7 +283,7 @@ def fig_backtest_bars(results: list, prefix: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", action="store_true")
-    parser.add_argument("--source", choices=("histdata", "yahoo"), default="histdata")
+    parser.add_argument("--source", choices=("histdata", "yahoo"), default="yahoo")
     parser.add_argument("--data-dir", default=config.DATA_DIR)
     args = parser.parse_args()
 
