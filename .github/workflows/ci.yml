@@ -86,7 +86,14 @@ jobs:
 
           # These two are allowed to reach the network, and are the
           # only two. Everything else must run from the local cache.
-          ALLOWED = {"fetch_data.py", "quant_metrics.py"}
+          # These reach the network by design. Everything else must
+          # run from the local cache.
+          #   fetch_data.py     downloads the Yahoo bars
+          #   quant_metrics.py  standalone rolling-metrics script
+          #   paper_trade.py    Alpaca paper broker, execution only -
+          #                     its SIGNAL still comes from the local
+          #                     consolidated cache, not from the broker
+          ALLOWED = {"fetch_data.py", "quant_metrics.py", "paper_trade.py"}
           NETWORK = {
               "yfinance", "requests", "urllib", "urllib3", "http",
               "httpx", "aiohttp", "socket", "pandas_datareader",
