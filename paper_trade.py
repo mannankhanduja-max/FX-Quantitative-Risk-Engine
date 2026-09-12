@@ -176,9 +176,18 @@ def signals(unit_size: int) -> dict[str, tuple[float, float, str]]:
         ).dropna()
         if sig.empty:
             continue
-        last = sig.iloc[-1]
+        last = float(sig.iloc[-1])
+
+        # A short in a name the broker will not lend is not a
+        # position, it is a rejected order. Clamp to flat rather
+        # than submit something certain to fail - and note that the
+        # backtest did NOT clamp, so its short leg in these names
+        # was never executable. See config.Instrument.shortable.
+        if last < 0 and not inst.shortable:
+            last = 0.0
+
         out[inst.yahoo] = (
-            float(last) * unit_size,
+            last * unit_size,
             float(bars["Close"].loc[sig.index[-1]]),
             str(sig.index[-1].date()),
         )
@@ -332,6 +341,10 @@ def main() -> int:
 
     intents = build_intents(url, headers, args.unit_size)
 
+    blocked = [i.yahoo for i in config.UNIVERSE if not i.shortable]
+    if blocked:
+        print(f"Not shortable at this broker, long-or-flat only: "
+              f"{', '.join(blocked)}")
     print("Signals from the local consolidated cache "
           f"(as of {intents[0].asof if intents else 'n/a'}):")
     frame = pd.DataFrame([asdict(i) for i in intents])

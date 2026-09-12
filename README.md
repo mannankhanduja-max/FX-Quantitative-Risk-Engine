@@ -405,6 +405,47 @@ time — a long-only rule with a trend filter, regime gating, a
 volatility target that goes to cash — and saying so is more useful
 than shipping something that never fires without mentioning it.
 
+#### The short leg was never executable
+
+Paper trading found this on its first submission, and it is the
+most consequential thing in this section.
+
+The strategy holds ±1 at all times, which assumes both directions
+are available. They are not. Four of the five instruments **cannot
+be sold short** — Alpaca rejects the order outright with
+`asset "FXE" cannot be sold short`, because the small currency
+ETFs are not on the easy-to-borrow list. Only GLD went through.
+
+| | short days | share | shortable |
+|---|---|---|---|
+| FXE | 2,503 | 48.2% | no |
+| FXB | 2,619 | 51.6% | no |
+| FXY | 2,292 | 46.6% | no |
+| FXF | 2,624 | 51.7% | no |
+| GLD | 2,875 | 55.3% | yes |
+
+**39.4% of all instrument-days in this repository's backtest are
+positions that could never have been opened.** Not mispriced —
+impossible.
+
+`config.Instrument` now carries a `shortable` flag and
+`paper_trade.py` clamps those names to long-or-flat rather than
+submitting orders certain to be rejected. The backtest deliberately
+does **not** clamp, because rewriting history to match today's
+borrow list would hide the problem rather than record it; the
+figures above and below are the unclamped ones, and should be read
+knowing that roughly two-fifths of them are fictional.
+
+Long-only versions of the same rule do look better — GLD goes from
+−50.5% to +128.8% — but that is not an edge appearing. It is beta:
+gold rose over the sample, and a rule that is long some of the time
+captures part of that. Removing the short leg from a losing
+strategy on a rising asset will always flatter it.
+
+Borrow availability varies by broker and over time, so this records
+what was rejected on 12 September 2026 rather than a permanent
+property of the assets.
+
 #### What real data does show: the path risk
 
 | | max drawdown | under water | annualised |

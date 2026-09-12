@@ -37,14 +37,31 @@ DATA_DIR = "data/histdata"
 class Instrument:
     """One tradable instrument, addressable in both data sources."""
 
-    __slots__ = ("name", "histdata", "yahoo", "available_from", "kind")
+    __slots__ = ("name", "histdata", "yahoo", "available_from", "kind",
+                 "shortable")
 
-    def __init__(self, name, histdata, yahoo, available_from, kind="fx"):
+    def __init__(self, name, histdata, yahoo, available_from, kind="fx",
+                 shortable=True):
         self.name = name
         self.histdata = histdata
         self.yahoo = yahoo
         self.available_from = available_from
         self.kind = kind
+        # Can this actually be sold short at a retail broker?
+        #
+        # Not a modelling nicety. A backtest that holds +/-1 at all
+        # times is assuming both directions are available, and for
+        # the small currency ETFs they are not - Alpaca rejects the
+        # order outright with "asset cannot be sold short", because
+        # they are not on the easy-to-borrow list. Roughly 39% of
+        # this repository's instrument-days were short positions in
+        # those four names, i.e. trades that could never have been
+        # opened.
+        #
+        # Borrow availability varies by broker and over time, so
+        # this reflects what was actually rejected on 2026-09-12,
+        # not a permanent property of the asset.
+        self.shortable = shortable
 
     def __repr__(self):
         return f"Instrument({self.histdata})"
@@ -81,10 +98,10 @@ class Instrument:
 # ------------------------------------------------------------
 
 UNIVERSE_ETF = [
-    Instrument("Euro",        "FXE", "FXE", "2005-12", kind="fx_etf"),
-    Instrument("Pound",       "FXB", "FXB", "2006-06", kind="fx_etf"),
-    Instrument("Yen",         "FXY", "FXY", "2007-02", kind="fx_etf"),
-    Instrument("Swiss franc", "FXF", "FXF", "2006-06", kind="fx_etf"),
+    Instrument("Euro",        "FXE", "FXE", "2005-12", kind="fx_etf", shortable=False),
+    Instrument("Pound",       "FXB", "FXB", "2006-06", kind="fx_etf", shortable=False),
+    Instrument("Yen",         "FXY", "FXY", "2007-02", kind="fx_etf", shortable=False),
+    Instrument("Swiss franc", "FXF", "FXF", "2006-06", kind="fx_etf", shortable=False),
     Instrument("Gold",        "GLD", "GLD", "2004-11", kind="metal_etf"),
 ]
 
