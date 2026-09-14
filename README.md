@@ -663,8 +663,14 @@ fx-risk-engine/
 ├── config.py                    # every parameter
 ├── fetch_data.py                # the only step that touches the network
 ├── run_risk_report.py           # the pipeline
+├── paper_trade.py               # Alpaca paper broker, execution only
+├── run_paper_daily.sh           # daily runner (launchd agent alongside)
+├── barrier_test.py              # 1:1 bracket, measured
+├── variants.py                  # conditioned variants and their win rates
+├── calendar_probe.py            # do the event dates carry more volatility?
 ├── fxrisk/
 │   ├── indicators.py            # rolling VWAP, EMA, shifted signal
+│   ├── calendar.py              # rule-derivable event flags
 │   ├── data/
 │   │   ├── yahoo.py             # cache reader, no network
 │   │   └── histdata.py          # tick + M1 loaders, VWAP, sessions
@@ -676,6 +682,7 @@ fx-risk-engine/
 │       ├── var.py               # VaR + Expected Shortfall
 │       ├── montecarlo.py        # FHS, parametric, bootstrap; term structure
 │       ├── strategy.py          # risk of RUNNING a signal (§3)
+│       ├── barriers.py          # target/stop/time exits, R multiples
 │       ├── performance.py       # Sharpe, Sortino, drawdown
 │       ├── correlation.py       # pairwise static vs EWMA vs DCC
 │       ├── backtesting.py       # Kupiec, Christoffersen, Basel
@@ -685,8 +692,9 @@ fx-risk-engine/
 │   ├── figures/                 # generated from model output
 │   └── make_figures.py          # regenerates docs/figures/
 ├── tests/
-│   ├── test_risk_engine.py      # 70 tests
-│   └── test_strategy_risk.py    # 12 tests
+│   ├── test_risk_engine.py         # 70 tests
+│   ├── test_strategy_risk.py       # 12 tests
+│   └── test_calendar_barriers.py   # 20 tests
 ├── .github/workflows/ci.yml     # suite on 3.10-3.12 + offline guard
 └── quant-portfolio/             # see §9
 ```

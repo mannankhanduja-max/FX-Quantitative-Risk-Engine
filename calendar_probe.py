@@ -20,6 +20,7 @@ that follows this can load them from a CSV.
 
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 
@@ -28,32 +29,11 @@ import pandas as pd
 from scipy import stats
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, "/Users/mannan.k/fx-risk-engine")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
 from fxrisk.data import yahoo
-
-
-def flags(idx: pd.DatetimeIndex) -> pd.DataFrame:
-    """Rule-derivable calendar flags on a trading-day index."""
-    s = pd.Series(idx, index=idx)
-    ym = s.dt.to_period("M")
-
-    fridays = s.dt.dayofweek == 4
-    # nth Friday within each month, counted over trading days present
-    friday_rank = fridays.groupby(ym).cumsum().where(fridays)
-
-    last_day = s.groupby(ym).transform("max") == s
-    first_day = s.groupby(ym).transform("min") == s
-    q_month = s.dt.month.isin([3, 6, 9, 12])
-
-    return pd.DataFrame({
-        "nfp": (friday_rank == 1).fillna(False),
-        "opex": (friday_rank == 3).fillna(False),
-        "month_end": last_day,
-        "quarter_end": last_day & q_month,
-        "turn": last_day | first_day,
-    }, index=idx)
+from fxrisk.calendar import flags
 
 
 def probe(sym: str) -> pd.DataFrame:

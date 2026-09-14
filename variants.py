@@ -30,6 +30,7 @@ hindsight.
 
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 
@@ -37,26 +38,22 @@ import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, "/Users/mannan.k/fx-risk-engine")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
 from fxrisk import indicators
 from fxrisk.data import yahoo
 from fxrisk.models.garch import rolling_garch_forecasts
 from fxrisk.risk.var import garch_var_series
+from fxrisk.risk.barriers import ewma_sigma
 
-from calendar_probe import flags
+from fxrisk.calendar import flags
 
 STOP_K = 3.0
 RR = 1.0
 MAX_DAYS = 10
 COST_BP = 2.0
 REFIT = 126
-
-
-def ewma_sigma(returns: pd.Series, lam: float = 0.94) -> pd.Series:
-    var = returns.pow(2).ewm(alpha=1 - lam, adjust=False).mean()
-    return np.sqrt(var).shift(1)
 
 
 def run_barriers(
