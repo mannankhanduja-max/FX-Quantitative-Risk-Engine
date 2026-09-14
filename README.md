@@ -668,6 +668,7 @@ fx-risk-engine/
 ├── barrier_test.py              # 1:1 bracket, measured
 ├── variants.py                  # conditioned variants and their win rates
 ├── calendar_probe.py            # do the event dates carry more volatility?
+├── gap_test.py                  # overnight gap, with a HELD-OUT third
 ├── fxrisk/
 │   ├── indicators.py            # rolling VWAP, EMA, shifted signal
 │   ├── calendar.py              # rule-derivable event flags
