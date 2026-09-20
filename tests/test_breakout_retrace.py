@@ -404,3 +404,44 @@ def test_a_later_non_overlapping_entry_still_gets_taken():
     t = bar.walk_explicit(b, e, rr=2.0, max_bars=4, cost_bp=0.0)
     assert len(t) == 2
     assert t.attrs["dropped_overlapping"] == 0
+
+
+def test_the_hurdle_is_compared_against_barrier_exits_only():
+    """
+    The trap this catches, found on real data at a 4-sigma stop:
+    the win rate read 42.1% against a 36.5% hurdle - apparently a
+    healthy edge - while mean net R was negative. 35% of trades
+    had exited on TIME, and the hurdle formula assumes every
+    trade pays +rr or -1. A time exit pays neither, so the two
+    numbers were measuring different things.
+
+    Here: two barrier trades, one win one loss, plus two time
+    exits that scratch a hair above zero. All-trades win rate is
+    75%; the figure the hurdle describes is 50%.
+    """
+    n = 10
+    b = _bars(h=[100.0] * n, l=[100.0] * n, c=[100.0] * n)
+    trades = pd.DataFrame([
+        {"outcome": "target", "unit_net_R": 2.0, "net_R": 2.0, "cost_R": 0.0,
+         "bars_held": 3, "be_armed": False, "ambiguous": False,
+         "stop_frac": 0.01},
+        {"outcome": "stop", "unit_net_R": -1.0, "net_R": -1.0, "cost_R": 0.0,
+         "bars_held": 3, "be_armed": False, "ambiguous": False,
+         "stop_frac": 0.01},
+        {"outcome": "time", "unit_net_R": 0.01, "net_R": 0.01, "cost_R": 0.0,
+         "bars_held": 40, "be_armed": False, "ambiguous": False,
+         "stop_frac": 0.01},
+        {"outcome": "time", "unit_net_R": 0.01, "net_R": 0.01, "cost_R": 0.0,
+         "bars_held": 40, "be_armed": False, "ambiguous": False,
+         "stop_frac": 0.01},
+    ])
+    s = bar.summarise_explicit(trades, rr=2.0)
+
+    assert s["win_rate"] == pytest.approx(0.75)
+    assert s["win_rate_barrier"] == pytest.approx(0.50)
+    assert s["time_exit_share"] == pytest.approx(0.50)
+    # The gap must be measured against the barrier figure, not the
+    # flattered one - otherwise widening the stop manufactures an
+    # edge out of trades that never reached a barrier at all.
+    assert s["gap_vs_breakeven"] == pytest.approx(
+        s["win_rate_barrier"] - s["breakeven_wr"])

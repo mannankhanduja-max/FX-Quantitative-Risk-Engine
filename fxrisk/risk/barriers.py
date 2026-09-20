@@ -223,9 +223,11 @@ def summarise(trades: pd.DataFrame, rr: float) -> dict:
     return {
         "trades": int(len(trades)),
         "win_rate": wr,
+        "win_rate_barrier": wr_barrier,
         "cost_R": cost_r,
         "breakeven_wr": be,
-        "gap_vs_breakeven": wr - be,
+        "gap_vs_breakeven": wr_barrier - be,
+        "time_exit_share": float((~at_barrier).mean()),
         "mean_net_R": float(trades["net_R"].mean()),
         "total_net_R": float(trades["net_R"].sum()),
         "target_hits": int((trades["outcome"] == "target").sum()),
@@ -432,6 +434,33 @@ def summarise_explicit(trades: pd.DataFrame, rr: float) -> dict:
 
     `win_rate` counts net R above zero, so a breakeven exit that
     still paid the round trip counts as a loss - which it is.
+
+    THE HURDLE COMPARISON IS ONLY VALID ON BARRIER EXITS
+    -----------------------------------------------------
+    `breakeven_wr` is derived from p*rr - (1-p) - cost_R = 0,
+    which assumes every trade pays either +rr or -1. A TIME exit
+    pays neither: it closes at the market, somewhere in between.
+
+    So the moment time exits are a meaningful share of the
+    sample, comparing the overall win rate to the hurdle is
+    comparing two different things, and it flatters the strategy
+    - a time exit closing at +0.05R counts as a "win" while
+    paying a fortieth of what a win is assumed to pay. Widening
+    the stop makes this worse, because the target moves further
+    away and more trades run out of time.
+
+    That is not hypothetical. On this repository's own data at a
+    4-sigma stop floor, 35% of trades were time exits, the win
+    rate read 42.1% against a 36.5% hurdle - apparently a healthy
+    edge - while mean net R was NEGATIVE at -0.047. The win rate
+    was measuring one thing and the hurdle another.
+
+    `win_rate_barrier` restricts to trades that actually
+    resolved at a barrier, which is the only population the
+    hurdle describes. `time_exit_share` says how much of the
+    sample the headline figure is papering over. When that share
+    is large, read `mean_net_R` and the t-statistic instead; the
+    win rate has stopped being a summary of anything.
     """
     if trades.empty:
         return {"trades": 0}
@@ -444,12 +473,21 @@ def summarise_explicit(trades: pd.DataFrame, rr: float) -> dict:
     saved = int(((trades["outcome"] == "breakeven")).sum())
     armed_to_target = int((armed & (trades["outcome"] == "target")).sum())
 
+    at_barrier = trades["outcome"] != "time"
+    wr_barrier = (
+        float((trades.loc[at_barrier, "unit_net_R"] > 0).mean())
+        if at_barrier.any()
+        else float("nan")
+    )
+
     return {
         "trades": int(len(trades)),
         "win_rate": wr,
+        "win_rate_barrier": wr_barrier,
         "cost_R": cost_r,
         "breakeven_wr": be,
-        "gap_vs_breakeven": wr - be,
+        "gap_vs_breakeven": wr_barrier - be,
+        "time_exit_share": float((~at_barrier).mean()),
         "mean_net_R": float(trades["net_R"].mean()),
         "total_net_R": float(trades["net_R"].sum()),
         "target_hits": int((trades["outcome"] == "target").sum()),

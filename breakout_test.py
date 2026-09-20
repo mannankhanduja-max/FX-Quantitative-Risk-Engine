@@ -82,6 +82,9 @@ def main() -> int:
                     default=config.RETRACE_MAX_BARS)
     ap.add_argument("--min-fraction", type=float,
                     default=config.RETRACE_MIN_FRACTION)
+    ap.add_argument("--stop-min-sigma", type=float,
+                    default=config.BREAKOUT_STOP_MIN_SIGMA,
+                    help="floor on the stop distance, in EWMA sigmas")
     ap.add_argument("--be-pips", type=float, default=10.0,
                     help="breakeven trigger, in the instrument's pips")
     ap.add_argument("--no-breakeven", action="store_true")
@@ -94,13 +97,14 @@ def main() -> int:
         retrace_max_bars=args.retrace_max_bars,
         min_fraction=args.min_fraction,
         max_fraction=config.RETRACE_MAX_FRACTION,
-        stop_min_sigma=config.BREAKOUT_STOP_MIN_SIGMA,
+        stop_min_sigma=args.stop_min_sigma,
         use_trend_filter=not args.no_trend,
     )
 
     print("Breakout -> retracement -> resumption, "
           f"{args.rr:g}:1, {args.cost_bp:g}bp per side, {args.interval} bars")
     print(f"  trend filter    {'VWAP/EMA bias' if cfg.use_trend_filter else 'OFF'}")
+    print(f"  stop floor      {args.stop_min_sigma:g} sigma")
     print(f"  breakeven stop  "
           f"{'OFF (control)' if args.no_breakeven else f'{args.be_pips:g} pips'}")
     print()
@@ -154,10 +158,18 @@ def main() -> int:
 
     print("\nPOOLED\n")
     print(f"  trades                {p['trades']}")
-    print(f"  win rate              {p['win_rate']:.2%}")
+    print(f"  win rate, all trades  {p['win_rate']:.2%}")
+    print(f"  win rate, barrier     {p['win_rate_barrier']:.2%}"
+          f"   <- the one the hurdle describes")
     print(f"  cost-adjusted hurdle  {p['breakeven_wr']:.2%}"
           f"   (folklore says {1 / (1 + args.rr):.2%})")
     print(f"  gap                   {p['gap_vs_breakeven']:+.2%}")
+    tshare = p["time_exit_share"]
+    if tshare > 0.15:
+        print(f"\n  !! {tshare:.0%} of trades exited on TIME, not at a barrier.")
+        print("  The hurdle formula assumes every trade pays +rr or -1, and a")
+        print("  time exit pays neither. The all-trades win rate above is not")
+        print("  comparable to it - read mean net R and the t-stat instead.")
     print(f"  mean net R            {p['mean_net_R']:+.4f}")
     print(f"  total net R           {p['total_net_R']:+.2f}")
     print(f"  target / stop / BE    {p['target_hits']} / {p['stop_hits']}"
