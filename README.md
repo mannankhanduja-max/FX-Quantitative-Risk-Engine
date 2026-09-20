@@ -783,6 +783,86 @@ result that survives only at one parameter setting is noise, and
 the question worth asking of the grid is whether the *sign* is
 stable, not which cell is largest.
 
+### The risk gates, held out, and what they did
+
+The obvious next move after a rule that loses is to trade it only
+under conditions you trust. Three gates were built for that, all
+from machinery the daily engine already had:
+
+- **GARCH regime** — GARCH(1,1)-t walk-forward conditional sigma,
+  refused outside a trailing band. A dead market has nothing
+  behind a breakout; a panic makes the stop distance meaningless.
+- **Conditional VaR** — the same sigma as a one-bar Student-t
+  quantile, capped at a trailing quantile.
+- **Correlation alignment** — the most-correlated partner's recent
+  move must agree with the trade's direction once the sign of rho
+  is applied.
+
+```bash
+python build_regime.py     # caches the GARCH paths, the slow step
+python gate_test.py        # 67/33 split, everything chosen in-sample
+```
+
+By the time these were written, roughly forty configurations had
+been run against the same 433 trades. So `gate_test.py` chooses
+**everything** on the first two thirds — the gate settings and the
+stop floor both, even though 4 sigma already looked best on the
+full sample, because that figure has seen the holdout.
+
+|  | trades | win rate (barrier) | hurdle | mean R | t |
+|---|---|---|---|---|---|
+| **In-sample** gated | 71 | 25.40% | 37.70% | **+0.0484** | +0.36 |
+| **In-sample** ungated | 291 | 18.63% | 37.30% | −0.0485 | −0.80 |
+| **Held out** gated | 64 | **8.93%** | 38.05% | **−0.3520** | −3.28 |
+| **Held out** ungated | 133 | 12.61% | 37.75% | −0.2096 | −2.57 |
+
+In-sample the gates turn mean R from negative to positive. Held
+out, the same frozen rule is **worse than not gating at all** —
+they refused half the trades and lost more per trade on the half
+they kept.
+
+This is the expected behaviour and worth stating plainly rather
+than filing as a disappointment. **A filter selects a subsample,
+so it cannot create expectancy absent from the population it
+selects from** — it can only concentrate expectancy that was
+already there. Applied to a rule with no edge, a filter will
+*still* show in-sample improvement, because any partition of a
+noisy sample has a better half. The swing from −0.0485 to +0.0484
+is what fitting noise looks like from the inside, and it looked
+systematic: the correlation gate improved mean R in ten of twelve
+stop/breakeven combinations before the holdout was touched.
+
+Risk management is worth having. It is not an edge generator.
+GARCH and VaR say how much can be lost; asking them which way
+price goes is asking the wrong question of the right tools.
+
+Two honest weaknesses in the gates themselves, documented rather
+than buried. The VaR gate is **near-redundant** with the regime
+gate, since VaR here is a monotone function of sigma — running
+both is close to counting one gate twice. And the **Epps effect**
+bites: correlations on 15-minute bars are biased toward zero by
+non-synchronous quoting, and these four do not share a clock.
+Median |rho| to the best partner was 0.33 for NAS100 against 0.59
+for USD/JPY, so `rho_min` is doing more work than it appears to.
+
+### Where the strategy stands
+
+Four tests, four negatives:
+
+| test | result |
+|---|---|
+| Base rule, 1 sigma stop | 24.7% barrier win rate vs 42.2% hurdle, −125R, t = −5.02 |
+| Stop widened to 4 sigma | −13.7R, t = −0.50 — all cost reduction, no edge |
+| Zero cost | mean R +0.047, t = +0.81 — no gross edge in either direction |
+| Risk gates, held out | −0.352 mean R, worse than ungated |
+
+The honest summary is that the entry rule carries no directional
+information, which is also what the daily VWAP/EMA signal measured
+at a rank IC between −0.011 and +0.003. Widening the stop made it
+cheaper to run a coin flip. The gates made the coin flip smaller.
+
+**BACKTEST-ONLY. Not a recommendation to trade.**
+
 ### What this still cannot tell you
 
 Moving off Yahoo bought sample size, which is the difference
@@ -859,6 +939,8 @@ fx-risk-engine/
 ├── calendar_probe.py            # do the event dates carry more volatility?
 ├── gap_test.py                  # overnight gap, with a HELD-OUT third
 ├── breakout_test.py             # breakout/retracement, 2:1, breakeven (§5a)
+├── build_regime.py              # caches GARCH/VaR/correlation paths (§5a)
+├── gate_test.py                 # risk gates, with a HELD-OUT third
 ├── fxrisk/
 │   ├── indicators.py            # rolling VWAP, EMA, shifted signal
 │   ├── calendar.py              # rule-derivable event flags
@@ -871,7 +953,8 @@ fx-risk-engine/
 │   │   ├── garch.py             # GARCH(1,1), normal or Student-t
 │   │   └── dcc.py               # DCC-GARCH
 │   ├── strategies/
-│   │   └── breakout_retrace.py  # session VWAP, breakout, retracement
+│   │   ├── breakout_retrace.py  # session VWAP, breakout, retracement
+│   │   └── regime.py            # GARCH / VaR / correlation gates
 │   └── risk/
 │       ├── var.py               # VaR + Expected Shortfall
 │       ├── montecarlo.py        # FHS, parametric, bootstrap; term structure
