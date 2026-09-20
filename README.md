@@ -67,6 +67,15 @@ one CSV per instrument into `data/yahoo/`, and every later run reads
 that cache — so a vendor revision or a rate limit cannot silently
 change a backtest you already ran.
 
+The intraday strategy in §5a uses a different source and its own
+download step, because Yahoo cannot support it at all:
+
+```bash
+pip install dukascopy-python
+python fetch_intraday.py       # Dukascopy 15m bars into data/intraday/
+python breakout_test.py
+```
+
 `python run_risk_report.py --demo` runs the whole pipeline on
 simulated data if you want to check the machinery without
 downloading anything. Its output is labelled `DEMO_SIMULATED_`.
@@ -482,6 +491,27 @@ downloads daily bars for the five ETFs in §5 and writes them to
 report afterwards reads the cache, so results are reproducible and
 the figures in this README were generated from it.
 
+### The Dukascopy path
+
+Used only by the intraday strategy in §5a, and chosen because
+Yahoo fails it three ways over: no volume on FX spot (so no VWAP
+is definable), no spot gold and no Nasdaq-100, and a trailing
+60-day ceiling on 15-minute bars. Dukascopy gives spot EUR/USD,
+spot gold, the Nasdaq-100 index and spot USD/JPY, with a tick
+count per bar and an archive back to 2003.
+
+The volume figure is a TICK COUNT, not contracts — in spot FX
+there is no consolidated tape, so traded volume does not exist.
+That makes the VWAP here activity-weighted rather than
+share-weighted, which is the same convention `histdata.py`
+already uses. §5a says more.
+
+```bash
+pip install dukascopy-python
+python fetch_intraday.py --years 2
+python fetch_intraday.py --check
+```
+
 ### The HistData path
 
 Retained for spot FX, and the reason `fxrisk/data/histdata.py`
@@ -648,42 +678,71 @@ cost model, the barrier walk and the ethic, and nothing else.
 Longs and shorts are symmetric.
 
 ```bash
-python fetch_intraday.py          # the only step needing internet
+pip install dukascopy-python
+python fetch_intraday.py                 # the only step needing internet
 python breakout_test.py
 python breakout_test.py --no-breakeven   # the control
 python breakout_test.py --no-trend       # is the VWAP filter earning its place?
 python breakout_test.py --sweep          # parameter neighbourhood
 ```
 
-### Four things that had to be decided, not assumed
+### The data source is Dukascopy, and that is the whole reason this works
 
-**The instruments are CME futures, not spot.** EUR/USD, XAU/USD,
-NAS100 and USD/JPY are represented by `6E=F`, `GC=F`, `NQ=F` and
-`6J=F`. The reason is volume: Yahoo reports `Volume = 0` for every
-FX spot symbol, and a volume-weighted average price computed on a
-zero-volume series is a TWAP wearing a false name. This repository
-already refuses to produce one (`indicators.rolling_vwap` raises),
-and the session VWAP here refuses for the same reason. Futures
-report real contract volume, and as a bonus all four trade on one
-Globex clock, so the four session VWAPs anchor at the same moment.
-`6J=F` is quoted inverted — rising 6J means USD/JPY falling —
-which changes how a trade's sign reads, not its outcome.
+Yahoo cannot support this strategy, for three separate reasons,
+any one of which is fatal:
 
-**"10 pips" is not a unit.** It means four different things across
-these four instruments, so each is converted to basis points of
-entry price at a reference level, and the arithmetic is written
-out in `config.py` where it can be argued with. They land between
-4.2bp (gold) and 9.3bp (EUR/USD) — which also means the four are
-*not* the same trigger in risk terms. 9.3bp of EUR/USD is a much
-larger move, in that instrument's own volatility, than 5.0bp of
-NAS100. "10 pips" is a round number in quote units, not a
-considered risk threshold.
+- **No volume.** Yahoo reports `Volume = 0` for every FX spot
+  symbol, which makes a VWAP undefined rather than merely noisy.
+  `indicators.rolling_vwap` already raises rather than hand back
+  a TWAP under a false name, and the session VWAP here refuses
+  for the same reason.
+- **No instruments.** No spot gold, no Nasdaq-100 index. Both
+  would have to be proxied by ETFs or futures.
+- **Sixty days.** Yahoo serves a trailing 60-day window of
+  15-minute bars and nothing behind it — a few dozen trades, and
+  no possibility of a held-out test.
+
+Dukascopy fixes all three. The instruments are the instruments:
+`EUR/USD`, `XAU/USD`, `E_NQ-100`, `USD/JPY` — spot, spot, the
+index, spot. Nothing is quoted backwards, nothing rolls between
+contracts, and the archive reaches back to 2003 for the majors.
+
+**What the volume figure actually is.** It is a TICK COUNT: the
+number of price updates inside the bar. In spot FX there is no
+consolidated tape, so traded volume does not exist — any source
+offering you spot FX volume is giving you one venue's slice, or a
+tick count under a better name. A tick-weighted VWAP is a real
+and precise object, the average price weighted by how busy the
+market was, and it is the convention `histdata.py` already uses,
+so the two intraday paths agree. It is *not* a share-volume VWAP
+and is not described as one anywhere in this code.
+
+The feed is Dukascopy's own, not the whole market, and it will
+not match another broker's tick count bar for bar.
+
+**Bars are bid-side.** A long fills on the ask, above the
+recorded high, and that spread is not in the bar data at all.
+`BREAKOUT_COST_BP` is set to 1.0 per side to cover it — wider
+than a quiet-hour EUR/USD spread, deliberately, because spreads
+widen exactly when breakouts happen and a stop is a market order
+into the move that triggered it. `--cost-bp` makes the
+sensitivity measurable rather than assumed.
+
+### Three other things that had to be decided, not assumed
+
+**"10 pips" is not a unit.** It means four different things
+across these instruments, so each is converted to basis points of
+entry price at a reference level, with the arithmetic written out
+in `config.py`. They land between 4.2bp (gold) and 9.3bp
+(EUR/USD) — which also means the four are *not* the same trigger
+in risk terms. 9.3bp of EUR/USD is a much larger move, in that
+instrument's own volatility, than 5.0bp of NAS100.
 
 **The breakeven stop arms at the close, never inside the bar.**
 A bar that touches the trigger and reverses in the same fifteen
 minutes takes the original stop. Arming on the intrabar high
-would convert losers into scratches for free, and is the specific
-bug that makes this family of rule look like it works. There is a
+converts losers into scratches for free, and is the specific bug
+that makes this family of rule look like it works. There is a
 test for it.
 
 **Overlapping entries are dropped.** A rule that fires on
@@ -695,41 +754,56 @@ risk, not one. `walk_explicit` drops them and reports the count.
 ### The breakeven stop is a trade, not a free lunch
 
 It is sold as risk reduction, and it does remove weight from the
-losing tail. It also removes weight from the winning tail, because
-a trade that would have run to target now gets scratched on the
-retest. On a synthetic random walk — where the true expectancy is
-exactly minus costs, so any apparent improvement is a bug — the
-rule moved the win rate from 30% to 15% and left total R
-essentially unchanged (−4.98 R vs −5.06 R). That is the correct
-answer, and it is the reason `--no-breakeven` exists as a control
-rather than as an afterthought.
+losing tail. It also removes weight from the winning tail,
+because a trade that would have run to target now gets scratched
+on the retest. On a synthetic random walk — where true expectancy
+is exactly minus costs, so any apparent improvement would be a
+bug — the rule moved the win rate from 30% to 15% and left total
+R essentially unchanged. That is the correct answer, and it is
+why `--no-breakeven` exists as a control rather than an
+afterthought.
 
 Whether it helps on real data depends on how often price that
 travels 10 pips comes back through entry before reaching target.
 That is a property of the instrument, not of the rule, and it is
 measurable rather than arguable.
 
-### What this cannot tell you
+### What to read in the output, and in what order
 
-Yahoo serves **60 days** of 15-minute bars and will not serve the
-history behind them. That is about 1,500 bars per instrument and,
-after three gates, a few dozen trades. With 40 trades a true 40%
-win rate produces an observed rate anywhere between roughly 25%
-and 56% one time in twenty.
+Not the total R. The **win rate against the cost-adjusted
+hurdle**. At 2:1 the folklore number is 33.3%, but the round trip
+is paid whether the trade wins or loses, and in units of risk
+that is `cost_R = 2 * cost / stop_distance` — so the real hurdle
+is `(1 + cost_R) / (1 + rr)`. This rule sets its stop from market
+structure rather than a constant, so the hurdle differs on every
+trade and the figure printed is the average.
 
-So this backtest can distinguish a working rule from a **broken**
-one, and that is what it is for. It cannot distinguish a working
-rule from a lucky one, and no amount of care with the code changes
-that — the limit is in the data. The daily engine's negative
-results are believable because they rest on 4,918 days. Nothing
-here rests on anything like that, and a positive result from this
-script should be treated as a reason to start collecting data
-going forward, not as evidence.
+Then the **t-statistic**, not the total. And then `--sweep`: a
+result that survives only at one parameter setting is noise, and
+the question worth asking of the grid is whether the *sign* is
+stable, not which cell is largest.
 
-The `--sweep` output exists for the same reason: a result that
-survives only at one parameter setting is noise, and the question
-worth asking of the grid is whether the *sign* is stable, not
-which cell is largest.
+### What this still cannot tell you
+
+Moving off Yahoo bought sample size, which is the difference
+between a few dozen trades and a few hundred. It did not buy
+certainty, and two limits remain:
+
+The entry rule has **two fitted-looking free parameters** — the
+retracement band and the wait — set from the shape of the idea
+rather than from the data, but never yet held out. Until this
+gets the same treatment `gap_test.py` gives the gap effect
+(choose on the first two thirds, touch the last third once), a
+positive result here means what every in-sample result in this
+repository means, which is very little. That is the obvious next
+step and it is not done.
+
+And **costs dominate at this frequency**. The round trip is over
+0.10R on a typical stop here. A rule that looks marginally
+profitable at 1bp per side can be firmly unprofitable at 2, and
+retail FX spreads at the moments this strategy trades are not
+1bp. The cost assumption deserves more scepticism than the
+signal.
 
 **BACKTEST-ONLY. Not a recommendation to trade.**
 
@@ -776,7 +850,7 @@ fx-risk-engine/
 ├── quant_metrics.py             # original rolling Sharpe/VaR pipeline
 ├── config.py                    # every parameter
 ├── fetch_data.py                # daily bars; touches the network
-├── fetch_intraday.py            # 15m bars; touches the network
+├── fetch_intraday.py            # Dukascopy 15m bars; touches the network
 ├── run_risk_report.py           # the pipeline
 ├── paper_trade.py               # Alpaca paper broker, execution only
 ├── run_paper_daily.sh           # daily runner (launchd agent alongside)
@@ -790,7 +864,7 @@ fx-risk-engine/
 │   ├── calendar.py              # rule-derivable event flags
 │   ├── data/
 │   │   ├── yahoo.py             # daily cache reader, no network
-│   │   ├── intraday.py          # 15m cache reader + Globex sessions
+│   │   ├── intraday.py          # Dukascopy cache reader, 17:00 ET sessions
 │   │   └── histdata.py          # tick + M1 loaders, VWAP, sessions
 │   ├── models/
 │   │   ├── ewma.py              # RiskMetrics EWMA
@@ -853,9 +927,14 @@ by eye:
 - **Overlapping entries are dropped, not stacked.** Counting three
   overlapping trades at one unit each levers the book past the
   risk the strategy claims to take.
-- **A session VWAP resets at 18:00 ET, not midnight.** Grouping on
-  the calendar date would reset it in the middle of the evening
-  Globex session — the worst possible place.
+- **A session VWAP resets at 17:00 ET, not midnight.** Grouping on
+  the calendar date would reset it in the middle of the Asian
+  session — the worst possible place. A second test asserts this
+  is the same boundary `config.SESSION_CLOSE` gives the daily
+  engine, so the two paths cannot silently diverge.
+- **The intraday universe is instruments, not proxies.** EUR/USD
+  means EUR/USD. Earlier drafts used currency ETFs and then CME
+  futures as stand-ins, both forced by Yahoo's limits.
 
 Bugs found by writing these tests rather than by reading the code:
 the Basel zone being applied below 99%; Lopez loss collapsing into

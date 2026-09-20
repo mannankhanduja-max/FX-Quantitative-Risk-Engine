@@ -47,26 +47,37 @@ def _bars(o=None, h=None, l=None, c=None, vol=1000, start="2026-01-05 09:30",
 # Session boundary and VWAP
 # ------------------------------------------------------------
 
-def test_session_rolls_at_six_pm_not_midnight():
+def test_session_rolls_at_five_pm_new_york_not_midnight():
     """
-    Globex sessions span two calendar dates. Grouping on the
-    calendar date would reset the VWAP at midnight, in the middle
-    of the evening session - the single worst place to reset it.
+    The FX day runs 17:00 ET to 17:00 ET, so a session spans two
+    calendar dates. Grouping on the calendar date would reset the
+    VWAP at midnight - in the middle of the Asian session, the
+    single worst place to reset it.
+
+    This is the same boundary config.SESSION_CLOSE gives the daily
+    engine, so the two paths cut the day at the same instant.
     """
     idx = pd.DatetimeIndex(
-        ["2026-01-05 17:45", "2026-01-05 18:15", "2026-01-05 23:45",
+        ["2026-01-05 16:45", "2026-01-05 17:15", "2026-01-05 23:45",
          "2026-01-06 02:00", "2026-01-06 09:30"]
     ).tz_localize("America/New_York")
     s = intraday.session_id(idx)
-    assert s.iloc[0] != s.iloc[1]              # 18:00 starts a new session
+    assert s.iloc[0] != s.iloc[1]              # 17:00 starts a new session
     assert s.iloc[1] == s.iloc[2] == s.iloc[3] == s.iloc[4]
+
+
+def test_session_boundary_matches_the_daily_engine():
+    """If these ever diverge, one of the two is cutting the wrong day."""
+    import config
+    assert config.SESSION_CLOSE == "17:00"
+    assert config.SESSION_TZ == "America/New_York"
 
 
 def test_session_vwap_resets_and_is_volume_weighted():
     c = [100.0, 100.0, 200.0, 200.0]
     idx = pd.DatetimeIndex(
         ["2026-01-05 09:30", "2026-01-05 09:45",
-         "2026-01-05 18:00", "2026-01-05 18:15"]
+         "2026-01-05 17:00", "2026-01-05 17:15"]
     ).tz_localize("America/New_York")
     b = pd.DataFrame({"High": c, "Low": c, "Close": c,
                       "Volume": [1, 3, 1, 1]}, index=idx)
@@ -326,6 +337,20 @@ def test_summarise_on_no_trades():
 # Config sanity
 # ------------------------------------------------------------
 
+def test_the_intraday_universe_is_instruments_not_proxies():
+    """
+    EUR/USD means EUR/USD. The earlier version of this universe
+    used currency ETFs and then CME futures as stand-ins, both
+    forced by Yahoo's limits; Dukascopy carries the instruments
+    themselves, so a proxy here would now be a choice rather than
+    a constraint.
+    """
+    import config as cfg
+    ids = {i.name: i.dukascopy for i in cfg.UNIVERSE_INTRADAY}
+    assert ids == {"EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD",
+                   "NAS100": "E_NQ-100", "USD/JPY": "USD/JPY"}
+
+
 def test_every_intraday_instrument_has_a_sane_breakeven_scale():
     """
     The four conversions in config are the most fragile numbers in
@@ -337,9 +362,7 @@ def test_every_intraday_instrument_has_a_sane_breakeven_scale():
     assert len(cfg.UNIVERSE_INTRADAY) == 4
     for inst in cfg.UNIVERSE_INTRADAY:
         assert 1.0 < inst.be_bp < 20.0, inst.name
-        assert inst.proxy_for
-    names = {i.proxy_for for i in cfg.UNIVERSE_INTRADAY}
-    assert names == {"EUR/USD", "XAU/USD", "NAS100", "USD/JPY"}
+        assert inst.dukascopy
 
 
 def test_overlapping_entries_are_dropped_not_stacked():

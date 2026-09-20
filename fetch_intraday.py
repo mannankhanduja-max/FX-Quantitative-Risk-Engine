@@ -1,28 +1,38 @@
 """
-Download 15-minute bars for the intraday universe into a local cache.
+Download intraday bars from Dukascopy into a local cache.
 
-    python fetch_intraday.py                 # the configured intraday universe
+    pip install dukascopy-python
+
+    python fetch_intraday.py                    # 2 years of 15m bars
+    python fetch_intraday.py --years 5
     python fetch_intraday.py --interval 5m
-    python fetch_intraday.py --check         # report the cache, download nothing
+    python fetch_intraday.py --check            # report cache, download nothing
 
 THIS IS THE ONLY STEP THAT NEEDS INTERNET. It writes one CSV per
-symbol into data/intraday/, and `breakout_test.py` reads those
-files offline.
+instrument into data/intraday/, and `breakout_test.py` reads them
+offline.
 
-YAHOO'S INTRADAY LIMITS, WHICH ARE NOT NEGOTIABLE
---------------------------------------------------
-    1m      7 days
-    5m     60 days
-    15m    60 days
-    60m   730 days
+WHY THIS SOURCE
+----------------
+`fxrisk/data/intraday.py` has the full argument. The short form:
+Dukascopy reports tick volume (so a VWAP is definable at all),
+carries all four instruments as the things actually asked for
+rather than as proxies, and serves years of history instead of
+Yahoo's trailing 60 days.
 
-A 60-day window at 15 minutes is about 1,500 bars per instrument.
-After the breakout filter and the retracement wait, that leaves a
-few dozen trades each. Enough to confirm the mechanics are right;
-not enough to conclude anything about edge. Re-run this weekly and
-the cache will only ever hold a rolling 60 days - Yahoo will not
-serve the history behind it, so if you want a longer intraday
-sample you have to accumulate it going forward or buy it.
+WHAT YOU ARE GETTING, PRECISELY
+--------------------------------
+Bid-side OHLC with a tick count per bar, from one broker's feed.
+Not a consolidated tape — there is no such thing in spot FX. It
+tracks the broad market closely and will not agree bar for bar
+with another broker.
+
+BE POLITE TO THE ENDPOINT. This is a free public service with no
+authentication and no published rate limit, which means the only
+thing stopping abuse is the person running the script. The
+default is one instrument at a time with a pause between chunks.
+Do not remove it, and do not re-download history you already have
+cached — the archive does not change.
 """
 
 from __future__ import annotations
@@ -31,62 +41,121 @@ import argparse
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config  # noqa: E402
-from fxrisk.data.intraday import (  # noqa: E402
-    DEFAULT_CACHE,
-    cache_path,
-    coverage,
-)
+from fxrisk.data.intraday import DEFAULT_CACHE, cache_path, coverage  # noqa: E402
 
-# Yahoo's own ceiling per interval, in days.
-MAX_DAYS = {"1m": 7, "2m": 60, "5m": 60, "15m": 60, "30m": 60, "60m": 730}
+# Dukascopy's own interval tokens, keyed by the name used here.
+INTERVALS = {
+    "1m": "INTERVAL_MIN_1",
+    "5m": "INTERVAL_MIN_5",
+    "10m": "INTERVAL_MIN_10",
+    "15m": "INTERVAL_MIN_15",
+    "30m": "INTERVAL_MIN_30",
+    "1h": "INTERVAL_HOUR_1",
+}
+
+# Fetched in slices rather than one request. A five-year 15m pull
+# is ~125k bars, and asking for it in a single call is both more
+# likely to fail and less polite than asking six times.
+CHUNK_DAYS = 300
+PAUSE_SECONDS = 1.5
 
 
-def fetch(symbol: str, interval: str, days: int, cache_dir: str,
-          retries: int = 3):
-    """Download one symbol at one interval and write it to the cache."""
-    import yfinance as yf
+def fetch_one(dk, instrument: str, interval_attr: str,
+              start: datetime, end: datetime, debug: bool = False):
+    """Pull one instrument in chunks and concatenate."""
+    import pandas as pd
 
-    for attempt in range(1, retries + 1):
+    interval = getattr(dk, interval_attr)
+    frames, cursor = [], start
+
+    while cursor < end:
+        stop = min(cursor + timedelta(days=CHUNK_DAYS), end)
         try:
-            df = yf.download(
-                symbol,
-                period=f"{days}d",
-                interval=interval,
-                auto_adjust=False,
-                progress=False,
-                threads=False,
-            )
-            if df is None or df.empty:
-                raise ValueError("empty frame returned")
+            df = dk.fetch(instrument, interval, dk.OFFER_SIDE_BID,
+                          cursor, stop, debug=debug)
+            if df is not None and len(df):
+                frames.append(df)
+        except Exception as exc:                          # noqa: BLE001
+            print(f"      chunk {cursor:%Y-%m-%d} -> {stop:%Y-%m-%d} "
+                  f"failed: {type(exc).__name__}: {exc}")
+        cursor = stop
+        if cursor < end:
+            time.sleep(PAUSE_SECONDS)
 
-            if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
-                df.columns = df.columns.get_level_values(0)
+    if not frames:
+        return None
 
-            df.index.name = "Datetime"
-            os.makedirs(cache_dir, exist_ok=True)
-            df.to_csv(cache_path(symbol, interval, cache_dir))
-            return len(df)
+    out = pd.concat(frames)
+    out = out[~out.index.duplicated(keep="last")].sort_index()
+    return out
 
-        except Exception as exc:                      # noqa: BLE001
-            if attempt == retries:
-                print(f"  {symbol:8s} FAILED after {retries} tries: {exc}")
-                return 0
-            time.sleep(2 * attempt)
-    return 0
+
+def normalise(df):
+    """Dukascopy's lowercase columns -> the repo's OHLCV names."""
+    import pandas as pd
+
+    out = df.rename(
+        columns={"open": "Open", "high": "High", "low": "Low",
+                 "close": "Close", "volume": "Volume"}
+    )
+    keep = [c for c in ("Open", "High", "Low", "Close", "Volume")
+            if c in out.columns]
+    out = out[keep].copy()
+
+    idx = pd.DatetimeIndex(out.index)
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    out.index = idx.tz_convert("UTC")
+    out.index.name = "Datetime"
+    return out
+
+
+def sanity(name: str, df) -> list[str]:
+    """
+    Complaints about a downloaded frame, or an empty list.
+
+    Worth doing before anything is cached. A silently mangled
+    column order or a stale frame is much cheaper to catch here
+    than after it has become a backtest result.
+    """
+    problems = []
+    if df is None or df.empty:
+        return [f"{name}: empty"]
+
+    bad_hl = int((df["High"] < df["Low"]).sum())
+    if bad_hl:
+        problems.append(f"{name}: High < Low on {bad_hl} bars "
+                        f"(column order is wrong)")
+
+    envelope = int(
+        ((df["High"] < df[["Open", "Close"]].max(axis=1))
+         | (df["Low"] > df[["Open", "Close"]].min(axis=1))).sum()
+    )
+    if envelope:
+        problems.append(f"{name}: {envelope} bars where High/Low do not "
+                        f"contain Open/Close")
+
+    if (df["Close"] <= 0).any():
+        problems.append(f"{name}: non-positive prices")
+
+    if "Volume" in df and (df["Volume"] < 0).any():
+        problems.append(f"{name}: negative tick volume")
+
+    return problems
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--interval", default="15m", choices=sorted(MAX_DAYS))
-    ap.add_argument("--days", type=int, default=None,
-                    help="default is Yahoo's maximum for the interval")
+    ap.add_argument("--interval", default="15m", choices=sorted(INTERVALS))
+    ap.add_argument("--years", type=float, default=2.0)
     ap.add_argument("--cache-dir", default=DEFAULT_CACHE)
-    ap.add_argument("--check", action="store_true",
-                    help="report what is cached and exit")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
     universe = config.UNIVERSE_INTRADAY
@@ -97,34 +166,61 @@ def main() -> int:
             try:
                 c = coverage(inst.yahoo, args.interval, args.cache_dir)
             except FileNotFoundError:
-                print(f"  {inst.name:10s} {inst.yahoo:6s} MISSING")
+                print(f"  {inst.name:9s} MISSING")
                 continue
-            print(f"  {inst.name:10s} {inst.yahoo:6s} "
-                  f"{c['bars']:6d} bars  {c['sessions']:3d} sessions  "
-                  f"vol>0 {c['volume_positive']:.0%}  "
-                  f"{c['start'][:16]} -> {c['end'][:16]}")
+            print(f"  {inst.name:9s} {c['bars']:7d} bars  "
+                  f"{c['sessions']:5d} sessions  "
+                  f"median {c['median_ticks']:6.0f} ticks/bar  "
+                  f"{c['start'][:10]} -> {c['end'][:10]}")
         return 0
 
-    days = args.days or MAX_DAYS[args.interval]
-    if days > MAX_DAYS[args.interval]:
-        print(f"Yahoo serves at most {MAX_DAYS[args.interval]} days at "
-              f"{args.interval}; asking for {days} returns an empty frame.")
+    try:
+        import dukascopy_python as dk
+    except ImportError:
+        print("dukascopy-python is not installed.\n\n    "
+              "pip install dukascopy-python\n")
         return 1
 
-    print(f"Downloading {len(universe)} symbols, {args.interval}, "
-          f"{days} days -> {args.cache_dir}\n")
+    end = datetime.now(timezone.utc).replace(tzinfo=None)
+    start = end - timedelta(days=int(args.years * 365))
 
-    ok = 0
+    print(f"Dukascopy, bid side, {args.interval}, "
+          f"{start:%Y-%m-%d} -> {end:%Y-%m-%d}")
+    print(f"  {len(universe)} instruments, {CHUNK_DAYS}-day chunks, "
+          f"{PAUSE_SECONDS:g}s between\n")
+
+    ok, complaints = 0, []
     for inst in universe:
-        n = fetch(inst.yahoo, args.interval, days, args.cache_dir)
-        if n:
-            ok += 1
-            print(f"  {inst.name:10s} {inst.yahoo:6s} {n:6d} bars")
+        print(f"  {inst.name:9s} {inst.dukascopy:12s} ...", flush=True)
+        raw = fetch_one(dk, inst.dukascopy, INTERVALS[args.interval],
+                        start, end, args.debug)
+        if raw is None:
+            print("      nothing returned")
+            continue
 
-    print(f"\n{ok}/{len(universe)} symbols cached.")
+        df = normalise(raw)
+        found = sanity(inst.name, df)
+        if found:
+            complaints.extend(found)
+            print("      REJECTED: " + "; ".join(found))
+            continue
+
+        os.makedirs(args.cache_dir, exist_ok=True)
+        df.to_csv(cache_path(inst.yahoo, args.interval, args.cache_dir))
+        ok += 1
+        print(f"      {len(df):7d} bars  {df.index[0]:%Y-%m-%d} -> "
+              f"{df.index[-1]:%Y-%m-%d}  "
+              f"median {df['Volume'].median():.0f} ticks/bar")
+
+    print(f"\n{ok}/{len(universe)} instruments cached.")
+    if complaints:
+        print("\nNothing was written for the rejected instruments. These")
+        print("checks exist because a mangled frame is far cheaper to catch")
+        print("here than after it has become a backtest result.")
+        return 1
     if ok < len(universe):
-        print("A partial cache will run, but the pooled result then "
-              "describes a different universe than the one configured.")
+        print("A partial cache will run, but the pooled result then")
+        print("describes a different universe than the one configured.")
         return 1
 
     print("\nNext:  python breakout_test.py")

@@ -98,6 +98,7 @@ jobs:
           NETWORK = {
               "yfinance", "requests", "urllib", "urllib3", "http",
               "httpx", "aiohttp", "socket", "pandas_datareader",
+              "dukascopy_python",
           }
 
           bad = []

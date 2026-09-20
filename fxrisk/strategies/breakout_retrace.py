@@ -113,6 +113,15 @@ def session_vwap(bars: pd.DataFrame, volume_col: str = "Volume") -> pd.Series:
     VWAP is the average price everyone who traded today has paid,
     which is the thing the rule is actually referring to.
 
+    WEIGHTED BY TICK COUNT, NOT CONTRACTS. Dukascopy reports the
+    number of price updates in each bar, which is what exists in
+    spot FX - there is no consolidated tape, so traded volume is
+    not merely unavailable, it is undefined. A tick-weighted VWAP
+    is a real and precise object: the average price weighted by
+    how busy the market was. It is NOT a share-volume VWAP and
+    should not be described as one. `histdata.py` already uses
+    this convention, so the two intraday paths agree.
+
     Raises if volume is absent or dead, for the same reason
     `rolling_vwap` does: an equal-weighted average called a VWAP
     is a lie about what the number means.
@@ -124,9 +133,9 @@ def session_vwap(bars: pd.DataFrame, volume_col: str = "Volume") -> pd.Series:
     if (vol <= 0).all():
         raise ValueError(
             "volume is zero on every bar, so VWAP is undefined. Yahoo "
-            "reports zero volume for FX spot symbols (EURUSD=X, JPY=X); "
-            "use the CME futures in config.UNIVERSE_INTRADAY, which "
-            "report real contract volume."
+            "reports zero volume for FX spot; the Dukascopy feed in "
+            "config.UNIVERSE_INTRADAY reports a tick count per bar. "
+            "Run:  python fetch_intraday.py"
         )
 
     tp = (bars["High"] + bars["Low"] + bars["Close"]) / 3.0
@@ -231,8 +240,9 @@ def find_setups(bars: pd.DataFrame, cfg: SetupConfig | None = None) -> pd.DataFr
         entered = False
 
         for j in range(i + 1, min(i + 1 + cfg.retrace_max_bars, n)):
-            # A setup does not survive the session boundary. The
-            # VWAP it was measured against no longer exists.
+            # A setup does not survive the 17:00 ET session
+            # boundary. The VWAP it was measured against no
+            # longer exists after the reset.
             if sess[j] != sess[i]:
                 break
 

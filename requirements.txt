@@ -9,7 +9,13 @@ matplotlib>=3.7
 # Tests.
 pytest>=7.4
 
-# Optional: only needed by quant-portfolio/, which downloads from
-# Yahoo Finance. The risk engine itself reads local HistData files
-# and makes no network calls.
+# Optional, and only for the two fetch scripts. Everything else
+# in the repository reads local files and makes no network call -
+# the CI offline guard walks the AST of every module to enforce
+# that, so these imports are confined to fetch_data.py,
+# fetch_intraday.py, quant_metrics.py and paper_trade.py.
+#
+# yfinance      daily bars for the ETF universe (fetch_data.py)
+# dukascopy     intraday bars with a tick count (fetch_intraday.py)
 yfinance>=0.2.40
+dukascopy-python>=1.2

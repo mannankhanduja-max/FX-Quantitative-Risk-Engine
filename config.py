@@ -287,63 +287,64 @@ MC_HORIZONS = [1, 5, 10]
 # ============================================================
 # INTRADAY UNIVERSE - breakout/retracement strategy
 #
-# Four instruments, each a CME future standing in for the thing
-# actually asked for. `fxrisk/data/intraday.py` explains why
-# futures rather than spot or ETFs; the short version is that
-# Yahoo reports Volume = 0 for FX spot, and a VWAP without volume
-# is a TWAP wearing a false name.
+# Source is Dukascopy, not Yahoo. `fxrisk/data/intraday.py` has
+# the argument; the short form is that Yahoo reports Volume = 0
+# for FX spot (so no VWAP is definable at all), has no Nasdaq-100
+# and no spot gold, and serves a trailing 60 days of 15-minute
+# bars with nothing behind them.
+#
+# These are the instruments themselves, not proxies: spot EUR/USD,
+# spot gold, the Nasdaq-100 index, spot USD/JPY. Nothing here is
+# quoted backwards and nothing rolls between contracts.
 #
 # `be_bp` is the breakeven trigger: how far price must travel in
-# the trade's favour before the stop is moved to entry. The
-# request was "10 pips", and a pip is not a unit that survives
-# contact with four different quote conventions, so each is
-# converted to basis points of the entry price at a reference
-# level. The arithmetic is written out so it can be argued with.
+# the trade's favour before the stop moves to entry. The request
+# was "10 pips", and a pip is not a unit that survives contact
+# with four quote conventions, so each is converted to basis
+# points of entry price at a reference level. The arithmetic is
+# written out so it can be argued with.
 #
-#   EUR/USD  10 pips = 0.0010 on 1.08         =  9.3 bp
-#   USD/JPY  10 pips = 0.10 yen on 150.00     =  6.7 bp
-#   XAU/USD  10 pips = $1.00 on 2400          =  4.2 bp
-#            (taking one gold pip as $0.10, which is the more
-#             common retail convention; some brokers say $0.01,
-#             which would make this 0.42 bp and the trigger
-#             essentially never fire)
-#   NAS100   10 pips = 10 index points on 20000 = 5.0 bp
+#   EUR/USD  10 pips = 0.0010 on 1.08           =  9.3 bp
+#   USD/JPY  10 pips = 0.10 yen on 150.00       =  6.7 bp
+#   XAU/USD  10 pips = $1.00 on 2400            =  4.2 bp
+#            (taking one gold pip as $0.10, the more common retail
+#             convention; some brokers say $0.01, which would make
+#             this 0.42bp and the trigger essentially never fire)
+#   NAS100   10 pips = 10 index points on 20000 =  5.0 bp
 #
 # Two things this hides. The conversion is level-dependent, so a
-# fixed bp figure drifts as price moves - over a 60-day window
-# that is under 5% and not worth modelling. And the four are NOT
-# the same distance in risk terms: 9.3bp of EUR/USD is a much
-# larger move, measured in that instrument's own volatility, than
-# 5.0bp of NAS100. "10 pips" is a round number in quote units,
-# not a considered risk threshold, and the sensitivity sweep in
-# breakout_test.py exists because of that.
+# fixed bp figure drifts as price moves - across two years that is
+# worth knowing about, and `--be-pips` exists to test sensitivity.
+# And the four are NOT the same distance in risk terms: 9.3bp of
+# EUR/USD is a much larger move, in that instrument's own
+# volatility, than 5.0bp of NAS100. "10 pips" is a round number in
+# quote units, not a considered risk threshold.
 # ============================================================
 
 class IntradayInstrument(Instrument):
     """An instrument traded on intraday bars, with a pip scale."""
 
-    __slots__ = ("be_bp", "proxy_for", "inverted")
+    __slots__ = ("be_bp", "dukascopy")
 
-    def __init__(self, name, yahoo, be_bp, proxy_for, kind="future",
-                 inverted=False, available_from="2025-01", shortable=True):
-        super().__init__(name, yahoo, yahoo, available_from, kind, shortable)
+    def __init__(self, name, dukascopy, be_bp, kind="fx",
+                 available_from="2003-01", shortable=True):
+        # `yahoo` is inherited as the cache key, not as a Yahoo
+        # symbol - the cache reader is source-agnostic and keys on
+        # whatever string it is given. Kept as the slug so the
+        # filename is stable if the source ever changes again.
+        slug = dukascopy.replace("/", "").replace("-", "").replace("_", "")
+        super().__init__(name, slug, slug, available_from, kind, shortable)
+        # Dukascopy's own instrument identifier.
+        self.dukascopy = dukascopy
         # Breakeven trigger in basis points of entry price.
         self.be_bp = be_bp
-        # What this future is standing in for.
-        self.proxy_for = proxy_for
-        # True when the future is quoted as the reciprocal of the
-        # pair it proxies, so a rising future means a falling pair.
-        self.inverted = inverted
 
 
 UNIVERSE_INTRADAY = [
-    IntradayInstrument("EUR/USD", "6E=F", be_bp=9.3, proxy_for="EUR/USD"),
-    IntradayInstrument("XAU/USD", "GC=F", be_bp=4.2, proxy_for="XAU/USD",
-                       kind="metal_future"),
-    IntradayInstrument("NAS100",  "NQ=F", be_bp=5.0, proxy_for="NAS100",
-                       kind="index_future"),
-    IntradayInstrument("USD/JPY", "6J=F", be_bp=6.7, proxy_for="USD/JPY",
-                       inverted=True),
+    IntradayInstrument("EUR/USD", "EUR/USD",  be_bp=9.3),
+    IntradayInstrument("XAU/USD", "XAU/USD",  be_bp=4.2, kind="metal"),
+    IntradayInstrument("NAS100",  "E_NQ-100", be_bp=5.0, kind="index"),
+    IntradayInstrument("USD/JPY", "USD/JPY",  be_bp=6.7),
 ]
 
 # ============================================================
@@ -358,8 +359,8 @@ BREAKOUT_LOOKBACK = 20
 
 # A breakout must CLOSE beyond the level, not merely touch it.
 # Wick-based confirmation turns every liquidity sweep into a
-# signal and is the single largest source of phantom trades in
-# this family of strategy.
+# signal and is the largest source of phantom trades in this
+# family of strategy.
 
 # How many bars the retracement may take before the setup is
 # abandoned. Too short and normal pullbacks are missed; too long
@@ -368,31 +369,43 @@ RETRACE_MAX_BARS = 12
 
 # How far back toward the breakout level price must pull before
 # the setup is armed, as a fraction of the breakout impulse.
-# 0.33 is a shallow retracement; 0.5 is the midpoint.
 RETRACE_MIN_FRACTION = 0.33
 
-# A retracement that goes past this fraction is not a pullback,
-# it is a failed breakout. Beyond 1.0 price is back through the
-# level it broke.
+# Past this fraction it is not a pullback, it is a failed
+# breakout: beyond 1.0 price is back through the level it broke.
 RETRACE_MAX_FRACTION = 1.0
 
-# Reward-to-risk on the bracket. 2.0 means the target sits twice
-# as far from entry as the stop, so the cost-adjusted breakeven
-# win rate is (1 + cost_R) / 3, a little over 33%.
+# Reward-to-risk on the bracket. 2.0 puts the target twice as far
+# from entry as the stop, so the cost-adjusted breakeven win rate
+# is (1 + cost_R) / 3, a little over 33%.
 BREAKOUT_RR = 2.0
 
-# Stop distance floor, in EWMA sigmas. The stop is normally placed
-# at the retracement extreme; this stops it being placed one tick
-# away when the pullback is shallow, which would otherwise make
-# the cost-in-units-of-risk enormous.
+# Stop distance floor, in EWMA sigmas. The stop normally sits at
+# the retracement extreme; this stops it being placed a tick away
+# when the pullback is shallow, which would make the cost in
+# units of risk enormous.
 BREAKOUT_STOP_MIN_SIGMA = 1.0
 
 # Bars a trade may stay open before it is closed at the market.
 BREAKOUT_MAX_BARS = 40
 
-# Round-trip cost in basis points, per side. Futures are cheaper
-# than the ETF universe: commission plus one tick of spread on
-# these four contracts is well inside a basis point, but 1.0 is
-# kept as a deliberately conservative figure because a retail
-# fill is not an exchange fill.
+# Cost in basis points PER SIDE.
+#
+# Deliberately wider than a raw Dukascopy spread. Three things it
+# has to cover, none of which the backtest models directly:
+#
+#   Bars are fetched on the BID, so a long entry fills above the
+#   recorded price and the spread is not in the bar data at all.
+#
+#   Spreads are not constant. The average EUR/USD spread is well
+#   under a basis point; at 13:30 on a payrolls Friday - which is
+#   exactly when breakouts happen - it is several times that, and
+#   this strategy is not a random sample of minutes.
+#
+#   Slippage on a stop is not the spread. A stop is a market order
+#   into the move that triggered it.
+#
+# 1.0bp per side is a guess with a direction: too high rather than
+# too low. `--cost-bp` exists so the result's sensitivity to it is
+# measurable rather than assumed.
 BREAKOUT_COST_BP = 1.0
