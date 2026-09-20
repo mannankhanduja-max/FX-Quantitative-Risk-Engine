@@ -621,6 +621,120 @@ range.
 
 ---
 
+---
+
+## 5a. Intraday breakout / retracement (2:1, breakeven stop)
+
+A second strategy, on 15-minute bars, separate from everything
+above. The daily engine asks *how much can this book lose*; this
+asks *does one specific entry rule make money*. They share the
+cost model, the barrier walk and the ethic, and nothing else.
+
+### The rule
+
+```
+1  TREND      9-period EMA of the session VWAP above the VWAP
+              (long bias) or below it (short bias)
+2  BREAKOUT   a bar CLOSES beyond the prior 20-bar high / low,
+              in the direction of the bias
+3  RETRACE    within 12 bars, price pulls back 33%-100% of the
+              breakout impulse
+4  ENTRY      first close back beyond the breakout bar's extreme
+5  BRACKET    stop at the retracement extreme (floored at 1 EWMA
+              sigma), target at 2x that distance, stop moves to
+              breakeven once price has travelled 10 pips
+```
+
+Longs and shorts are symmetric.
+
+```bash
+python fetch_intraday.py          # the only step needing internet
+python breakout_test.py
+python breakout_test.py --no-breakeven   # the control
+python breakout_test.py --no-trend       # is the VWAP filter earning its place?
+python breakout_test.py --sweep          # parameter neighbourhood
+```
+
+### Four things that had to be decided, not assumed
+
+**The instruments are CME futures, not spot.** EUR/USD, XAU/USD,
+NAS100 and USD/JPY are represented by `6E=F`, `GC=F`, `NQ=F` and
+`6J=F`. The reason is volume: Yahoo reports `Volume = 0` for every
+FX spot symbol, and a volume-weighted average price computed on a
+zero-volume series is a TWAP wearing a false name. This repository
+already refuses to produce one (`indicators.rolling_vwap` raises),
+and the session VWAP here refuses for the same reason. Futures
+report real contract volume, and as a bonus all four trade on one
+Globex clock, so the four session VWAPs anchor at the same moment.
+`6J=F` is quoted inverted — rising 6J means USD/JPY falling —
+which changes how a trade's sign reads, not its outcome.
+
+**"10 pips" is not a unit.** It means four different things across
+these four instruments, so each is converted to basis points of
+entry price at a reference level, and the arithmetic is written
+out in `config.py` where it can be argued with. They land between
+4.2bp (gold) and 9.3bp (EUR/USD) — which also means the four are
+*not* the same trigger in risk terms. 9.3bp of EUR/USD is a much
+larger move, in that instrument's own volatility, than 5.0bp of
+NAS100. "10 pips" is a round number in quote units, not a
+considered risk threshold.
+
+**The breakeven stop arms at the close, never inside the bar.**
+A bar that touches the trigger and reverses in the same fifteen
+minutes takes the original stop. Arming on the intrabar high
+would convert losers into scratches for free, and is the specific
+bug that makes this family of rule look like it works. There is a
+test for it.
+
+**Overlapping entries are dropped.** A rule that fires on
+consecutive bars in a trend produces entries that sit on top of
+one another, and counting each at one unit of risk silently
+levers the book — three overlapping trades is three units at
+risk, not one. `walk_explicit` drops them and reports the count.
+
+### The breakeven stop is a trade, not a free lunch
+
+It is sold as risk reduction, and it does remove weight from the
+losing tail. It also removes weight from the winning tail, because
+a trade that would have run to target now gets scratched on the
+retest. On a synthetic random walk — where the true expectancy is
+exactly minus costs, so any apparent improvement is a bug — the
+rule moved the win rate from 30% to 15% and left total R
+essentially unchanged (−4.98 R vs −5.06 R). That is the correct
+answer, and it is the reason `--no-breakeven` exists as a control
+rather than as an afterthought.
+
+Whether it helps on real data depends on how often price that
+travels 10 pips comes back through entry before reaching target.
+That is a property of the instrument, not of the rule, and it is
+measurable rather than arguable.
+
+### What this cannot tell you
+
+Yahoo serves **60 days** of 15-minute bars and will not serve the
+history behind them. That is about 1,500 bars per instrument and,
+after three gates, a few dozen trades. With 40 trades a true 40%
+win rate produces an observed rate anywhere between roughly 25%
+and 56% one time in twenty.
+
+So this backtest can distinguish a working rule from a **broken**
+one, and that is what it is for. It cannot distinguish a working
+rule from a lucky one, and no amount of care with the code changes
+that — the limit is in the data. The daily engine's negative
+results are believable because they rest on 4,918 days. Nothing
+here rests on anything like that, and a positive result from this
+script should be treated as a reason to start collecting data
+going forward, not as evidence.
+
+The `--sweep` output exists for the same reason: a result that
+survives only at one parameter setting is noise, and the question
+worth asking of the grid is whether the *sign* is stable, not
+which cell is largest.
+
+**BACKTEST-ONLY. Not a recommendation to trade.**
+
+---
+
 ## 6. `quant_metrics.py` — the original pipeline
 
 The repository began as a compact rolling-metrics pipeline, and that
@@ -661,7 +775,8 @@ repository.
 fx-risk-engine/
 ├── quant_metrics.py             # original rolling Sharpe/VaR pipeline
 ├── config.py                    # every parameter
-├── fetch_data.py                # the only step that touches the network
+├── fetch_data.py                # daily bars; touches the network
+├── fetch_intraday.py            # 15m bars; touches the network
 ├── run_risk_report.py           # the pipeline
 ├── paper_trade.py               # Alpaca paper broker, execution only
 ├── run_paper_daily.sh           # daily runner (launchd agent alongside)
@@ -669,21 +784,26 @@ fx-risk-engine/
 ├── variants.py                  # conditioned variants and their win rates
 ├── calendar_probe.py            # do the event dates carry more volatility?
 ├── gap_test.py                  # overnight gap, with a HELD-OUT third
+├── breakout_test.py             # breakout/retracement, 2:1, breakeven (§5a)
 ├── fxrisk/
 │   ├── indicators.py            # rolling VWAP, EMA, shifted signal
 │   ├── calendar.py              # rule-derivable event flags
 │   ├── data/
-│   │   ├── yahoo.py             # cache reader, no network
+│   │   ├── yahoo.py             # daily cache reader, no network
+│   │   ├── intraday.py          # 15m cache reader + Globex sessions
 │   │   └── histdata.py          # tick + M1 loaders, VWAP, sessions
 │   ├── models/
 │   │   ├── ewma.py              # RiskMetrics EWMA
 │   │   ├── garch.py             # GARCH(1,1), normal or Student-t
 │   │   └── dcc.py               # DCC-GARCH
+│   ├── strategies/
+│   │   └── breakout_retrace.py  # session VWAP, breakout, retracement
 │   └── risk/
 │       ├── var.py               # VaR + Expected Shortfall
 │       ├── montecarlo.py        # FHS, parametric, bootstrap; term structure
 │       ├── strategy.py          # risk of RUNNING a signal (§3)
-│       ├── barriers.py          # target/stop/time exits, R multiples
+│       ├── barriers.py          # target/stop/time exits, R multiples,
+│       │                        #   explicit brackets + breakeven stop
 │       ├── performance.py       # Sharpe, Sortino, drawdown
 │       ├── correlation.py       # pairwise static vs EWMA vs DCC
 │       ├── backtesting.py       # Kupiec, Christoffersen, Basel
@@ -721,6 +841,21 @@ by eye:
 - **Stress replay reports partial coverage** instead of hiding it.
 - **VWAP refuses to pass off a TWAP as a VWAP.**
 - **A day-one loss shows up as a drawdown** — see below.
+- **The breakeven stop arms at the close, not the intrabar high.**
+  A bar that touches the trigger and reverses in the same fifteen
+  minutes must take the original stop. The flattering version of
+  this bug converts losers into scratches for free and is
+  invisible until the rule is traded.
+- **The breakeven stop also costs winners.** A trade that arms,
+  retests entry and only then runs to target is a scratch, not a
+  +2R. If that test ever passes with both at +2R, the stop is not
+  really armed.
+- **Overlapping entries are dropped, not stacked.** Counting three
+  overlapping trades at one unit each levers the book past the
+  risk the strategy claims to take.
+- **A session VWAP resets at 18:00 ET, not midnight.** Grouping on
+  the calendar date would reset it in the middle of the evening
+  Globex session — the worst possible place.
 
 Bugs found by writing these tests rather than by reading the code:
 the Basel zone being applied below 99%; Lopez loss collapsing into

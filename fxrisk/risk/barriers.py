@@ -234,3 +234,231 @@ def summarise(trades: pd.DataFrame, rr: float) -> dict:
         "ambiguous_share": float(trades["ambiguous"].mean()),
         "mean_days": float(trades["days_held"].mean()),
     }
+
+
+# ------------------------------------------------------------
+# Explicit brackets, with an optional breakeven stop
+#
+# `walk` above places the stop at k*sigma from entry, which is
+# what a volatility-scaled bracket does. A breakout/retracement
+# rule does something different: it puts the stop at a price the
+# market has already printed - the retracement extreme - so the
+# distance is whatever that structure says it is, and it differs
+# trade by trade. `walk_explicit` takes those levels as given.
+#
+# It also implements the move-to-breakeven rule, which `walk`
+# deliberately does not, because on daily bars it cannot be
+# honest: a single daily bar can contain the breakeven trigger,
+# a run to the target and a collapse back through entry, and no
+# amount of care recovers the order they happened in. On 15
+# minute bars the ambiguity is smaller but not gone, and it is
+# resolved the same way it is everywhere else in this file -
+# against the trade.
+# ------------------------------------------------------------
+
+
+def walk_explicit(
+    bars: pd.DataFrame,
+    entries: pd.DataFrame,
+    rr: float = 2.0,
+    max_bars: int = 40,
+    cost_bp: float = 1.0,
+    breakeven_frac: float | None = None,
+    allow_overlap: bool = False,
+) -> pd.DataFrame:
+    """
+    Walk a list of already-decided entries to their exits.
+
+    Parameters
+    ----------
+    entries
+        One row per setup, with columns `bar` (integer position
+        of the entry bar in `bars`), `side` (+1/-1), `entry`
+        (fill price) and `stop` (initial stop price). Rows must
+        be in ascending `bar` order.
+    rr
+        Target distance as a multiple of the initial stop
+        distance. The target never moves.
+    breakeven_frac
+        Once price has travelled this fraction of the entry price
+        in the trade's favour, the stop moves to entry. None
+        disables the rule.
+    allow_overlap
+        False (the default) drops any entry that would open while
+        the previous trade is still running. This is not a detail.
+        A rule that fires on consecutive bars during a trend
+        produces entries that overlap, and counting each at one
+        unit of risk silently levers the book: three overlapping
+        trades is three units at risk, not one, so the R total
+        describes a position size the stated risk never permitted.
+        Dropped entries are counted in the result's attrs.
+
+    WHAT THE BREAKEVEN STOP ACTUALLY DOES
+    --------------------------------------
+    It is usually sold as risk reduction, and it is - but it is
+    not free, and the cost is not where people look for it. It
+    converts some losers into scratches, which raises the average
+    outcome of the losing tail. It also converts some winners
+    into scratches, because a trade that would have gone to
+    target now gets stopped at entry on the retest, and those
+    were full +rr outcomes. Whether the trade is worth making
+    depends on how often price that travels `breakeven_frac`
+    comes back through entry before reaching the target, which is
+    a property of the instrument, not of the rule.
+
+    The output carries `be_armed` and `outcome == "breakeven"` so
+    both sides of that trade can be counted rather than assumed.
+    A run with `breakeven_frac=None` is the control.
+
+    ONE HONEST LIMIT. Within the bar that arms the stop, the
+    trigger and a subsequent move back to entry are indis-
+    tinguishable. This function arms the stop at the CLOSE of the
+    triggering bar, never inside it, so a bar that touches the
+    trigger and reverses in the same fifteen minutes takes the
+    original stop. That is the pessimistic reading and it makes
+    the breakeven rule look slightly worse than a tick-level
+    simulation would.
+    """
+    for col in ("High", "Low", "Close"):
+        if col not in bars.columns:
+            raise ValueError(f"bars is missing the '{col}' column")
+    if rr <= 0:
+        raise ValueError("rr must be positive")
+    if max_bars < 1:
+        raise ValueError("max_bars must be at least 1")
+    if breakeven_frac is not None and breakeven_frac <= 0:
+        raise ValueError("breakeven_frac must be positive or None")
+
+    if entries.empty:
+        return pd.DataFrame()
+
+    high = bars["High"].to_numpy(dtype="float64")
+    low = bars["Low"].to_numpy(dtype="float64")
+    close = bars["Close"].to_numpy(dtype="float64")
+    idx = bars.index
+    n = len(idx)
+
+    out = []
+    dropped = 0
+    next_free = -1
+    for row in entries.itertuples(index=False):
+        i = int(row.bar)
+        if not allow_overlap and i < next_free:
+            dropped += 1
+            continue
+        side = float(row.side)
+        entry = float(row.entry)
+        stop0 = float(row.stop)
+
+        stop_d = abs(entry - stop0)
+        if stop_d <= 0 or i >= n - 1:
+            continue
+
+        target = entry + side * stop_d * rr
+        stop = stop0
+        be_armed = False
+        be_trigger = (
+            entry + side * breakeven_frac * entry
+            if breakeven_frac is not None
+            else None
+        )
+
+        exit_px, held, ambiguous, outcome = None, 0, False, "time"
+
+        for j in range(i + 1, min(i + 1 + max_bars, n)):
+            held = j - i
+            hi, lo, cl = high[j], low[j], close[j]
+
+            hit_t = hi >= target if side > 0 else lo <= target
+            hit_s = lo <= stop if side > 0 else hi >= stop
+
+            if hit_t and hit_s:
+                ambiguous = True
+                outcome = "breakeven" if be_armed else "stop"
+                exit_px = stop
+                break
+            if hit_s:
+                outcome = "breakeven" if be_armed else "stop"
+                exit_px = stop
+                break
+            if hit_t:
+                outcome, exit_px = "target", target
+                break
+
+            # Arm at the close, never inside the bar. See the
+            # docstring - this is the pessimistic reading.
+            if be_trigger is not None and not be_armed:
+                reached = cl >= be_trigger if side > 0 else cl <= be_trigger
+                if reached:
+                    be_armed, stop = True, entry
+
+        if exit_px is None:
+            exit_px = close[min(i + max_bars, n - 1)]
+
+        next_free = i + max(held, 1)
+
+        gross_r = side * (exit_px - entry) / stop_d
+        cost_r = (2 * cost_bp / 10_000) * entry / stop_d
+
+        out.append(
+            {
+                "entry_time": idx[i],
+                "side": side,
+                "entry": entry,
+                "stop0": stop0,
+                "target": target,
+                "exit": exit_px,
+                "outcome": outcome,
+                "bars_held": held,
+                "be_armed": be_armed,
+                "ambiguous": ambiguous,
+                "stop_frac": stop_d / entry,
+                "cost_R": cost_r,
+                "gross_R": gross_r,
+                "unit_net_R": gross_r - cost_r,
+                "net_R": gross_r - cost_r,
+            }
+        )
+
+    frame = pd.DataFrame(out)
+    frame.attrs["dropped_overlapping"] = dropped
+    return frame
+
+
+def summarise_explicit(trades: pd.DataFrame, rr: float) -> dict:
+    """
+    Win rate against the cost-adjusted hurdle, plus what the
+    breakeven stop did to both tails.
+
+    `win_rate` counts net R above zero, so a breakeven exit that
+    still paid the round trip counts as a loss - which it is.
+    """
+    if trades.empty:
+        return {"trades": 0}
+
+    cost_r = float(trades["cost_R"].mean())
+    wr = float((trades["unit_net_R"] > 0).mean())
+    be = breakeven_win_rate(cost_r, rr)
+    armed = trades["be_armed"].astype(bool)
+
+    saved = int(((trades["outcome"] == "breakeven")).sum())
+    armed_to_target = int((armed & (trades["outcome"] == "target")).sum())
+
+    return {
+        "trades": int(len(trades)),
+        "win_rate": wr,
+        "cost_R": cost_r,
+        "breakeven_wr": be,
+        "gap_vs_breakeven": wr - be,
+        "mean_net_R": float(trades["net_R"].mean()),
+        "total_net_R": float(trades["net_R"].sum()),
+        "target_hits": int((trades["outcome"] == "target").sum()),
+        "stop_hits": int((trades["outcome"] == "stop").sum()),
+        "be_exits": saved,
+        "time_exits": int((trades["outcome"] == "time").sum()),
+        "be_armed_share": float(armed.mean()),
+        "be_armed_then_target": armed_to_target,
+        "ambiguous_share": float(trades["ambiguous"].mean()),
+        "mean_bars": float(trades["bars_held"].mean()),
+        "mean_stop_frac": float(trades["stop_frac"].mean()),
+    }

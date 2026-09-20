@@ -93,7 +93,8 @@ jobs:
           #   paper_trade.py    Alpaca paper broker, execution only -
           #                     its SIGNAL still comes from the local
           #                     consolidated cache, not from the broker
-          ALLOWED = {"fetch_data.py", "quant_metrics.py", "paper_trade.py"}
+          ALLOWED = {"fetch_data.py", "fetch_intraday.py", "quant_metrics.py",
+                     "paper_trade.py"}
           NETWORK = {
               "yfinance", "requests", "urllib", "urllib3", "http",
               "httpx", "aiohttp", "socket", "pandas_datareader",

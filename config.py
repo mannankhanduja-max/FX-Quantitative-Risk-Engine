@@ -283,3 +283,116 @@ MC_SIMULATIONS = 20000
 # ignores that volatility mean-reverts, so it overstates risk when
 # current vol is above its long-run level and understates it below.
 MC_HORIZONS = [1, 5, 10]
+
+# ============================================================
+# INTRADAY UNIVERSE - breakout/retracement strategy
+#
+# Four instruments, each a CME future standing in for the thing
+# actually asked for. `fxrisk/data/intraday.py` explains why
+# futures rather than spot or ETFs; the short version is that
+# Yahoo reports Volume = 0 for FX spot, and a VWAP without volume
+# is a TWAP wearing a false name.
+#
+# `be_bp` is the breakeven trigger: how far price must travel in
+# the trade's favour before the stop is moved to entry. The
+# request was "10 pips", and a pip is not a unit that survives
+# contact with four different quote conventions, so each is
+# converted to basis points of the entry price at a reference
+# level. The arithmetic is written out so it can be argued with.
+#
+#   EUR/USD  10 pips = 0.0010 on 1.08         =  9.3 bp
+#   USD/JPY  10 pips = 0.10 yen on 150.00     =  6.7 bp
+#   XAU/USD  10 pips = $1.00 on 2400          =  4.2 bp
+#            (taking one gold pip as $0.10, which is the more
+#             common retail convention; some brokers say $0.01,
+#             which would make this 0.42 bp and the trigger
+#             essentially never fire)
+#   NAS100   10 pips = 10 index points on 20000 = 5.0 bp
+#
+# Two things this hides. The conversion is level-dependent, so a
+# fixed bp figure drifts as price moves - over a 60-day window
+# that is under 5% and not worth modelling. And the four are NOT
+# the same distance in risk terms: 9.3bp of EUR/USD is a much
+# larger move, measured in that instrument's own volatility, than
+# 5.0bp of NAS100. "10 pips" is a round number in quote units,
+# not a considered risk threshold, and the sensitivity sweep in
+# breakout_test.py exists because of that.
+# ============================================================
+
+class IntradayInstrument(Instrument):
+    """An instrument traded on intraday bars, with a pip scale."""
+
+    __slots__ = ("be_bp", "proxy_for", "inverted")
+
+    def __init__(self, name, yahoo, be_bp, proxy_for, kind="future",
+                 inverted=False, available_from="2025-01", shortable=True):
+        super().__init__(name, yahoo, yahoo, available_from, kind, shortable)
+        # Breakeven trigger in basis points of entry price.
+        self.be_bp = be_bp
+        # What this future is standing in for.
+        self.proxy_for = proxy_for
+        # True when the future is quoted as the reciprocal of the
+        # pair it proxies, so a rising future means a falling pair.
+        self.inverted = inverted
+
+
+UNIVERSE_INTRADAY = [
+    IntradayInstrument("EUR/USD", "6E=F", be_bp=9.3, proxy_for="EUR/USD"),
+    IntradayInstrument("XAU/USD", "GC=F", be_bp=4.2, proxy_for="XAU/USD",
+                       kind="metal_future"),
+    IntradayInstrument("NAS100",  "NQ=F", be_bp=5.0, proxy_for="NAS100",
+                       kind="index_future"),
+    IntradayInstrument("USD/JPY", "6J=F", be_bp=6.7, proxy_for="USD/JPY",
+                       inverted=True),
+]
+
+# ============================================================
+# BREAKOUT / RETRACEMENT STRATEGY
+# ============================================================
+
+# Bars of history the breakout level is taken from. 20 bars of
+# 15 minutes is five hours - long enough that clearing it means
+# something, short enough that a level survives inside one
+# session.
+BREAKOUT_LOOKBACK = 20
+
+# A breakout must CLOSE beyond the level, not merely touch it.
+# Wick-based confirmation turns every liquidity sweep into a
+# signal and is the single largest source of phantom trades in
+# this family of strategy.
+
+# How many bars the retracement may take before the setup is
+# abandoned. Too short and normal pullbacks are missed; too long
+# and the entry has nothing to do with the breakout any more.
+RETRACE_MAX_BARS = 12
+
+# How far back toward the breakout level price must pull before
+# the setup is armed, as a fraction of the breakout impulse.
+# 0.33 is a shallow retracement; 0.5 is the midpoint.
+RETRACE_MIN_FRACTION = 0.33
+
+# A retracement that goes past this fraction is not a pullback,
+# it is a failed breakout. Beyond 1.0 price is back through the
+# level it broke.
+RETRACE_MAX_FRACTION = 1.0
+
+# Reward-to-risk on the bracket. 2.0 means the target sits twice
+# as far from entry as the stop, so the cost-adjusted breakeven
+# win rate is (1 + cost_R) / 3, a little over 33%.
+BREAKOUT_RR = 2.0
+
+# Stop distance floor, in EWMA sigmas. The stop is normally placed
+# at the retracement extreme; this stops it being placed one tick
+# away when the pullback is shallow, which would otherwise make
+# the cost-in-units-of-risk enormous.
+BREAKOUT_STOP_MIN_SIGMA = 1.0
+
+# Bars a trade may stay open before it is closed at the market.
+BREAKOUT_MAX_BARS = 40
+
+# Round-trip cost in basis points, per side. Futures are cheaper
+# than the ETF universe: commission plus one tick of spread on
+# these four contracts is well inside a basis point, but 1.0 is
+# kept as a deliberately conservative figure because a retail
+# fill is not an exchange fill.
+BREAKOUT_COST_BP = 1.0
