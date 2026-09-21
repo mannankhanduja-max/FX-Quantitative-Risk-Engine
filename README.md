@@ -845,13 +845,23 @@ non-synchronous quoting, and these four do not share a clock.
 Median |rho| to the best partner was 0.33 for NAS100 against 0.59
 for USD/JPY, so `rho_min` is doing more work than it appears to.
 
+<img src="docs/figures/06-win-rate-hurdle.png" alt="Barrier win rate against the cost-adjusted breakeven hurdle for seven configurations of the 2:1 breakout rule. Every bar stops short of its own hurdle. Widening the stop from 1 to 4 sigma lowers the hurdle from 42.2% to 36.5% while the win rate barely moves. The risk gates reach 25.4% in-sample and 8.9% held out, below the 12.6% of the ungated control on the same held-out bars." width="100%">
+
+<sub>Regenerate with <code>python docs/make_breakout_figure.py</code>. Every row is recomputed from the backtest, and the gated configuration is re-chosen in-sample by the same function <code>gate_test.py</code> uses.</sub>
+
+The hurdle is drawn per row, not as one reference line, because it
+moves: it depends on cost as a share of stop distance. A single line
+would hide the most useful thing in the picture, which is that the
+bar comes *down* to meet a win rate that barely moves as the stop
+widens.
+
 ### Where the strategy stands
 
 Four tests, four negatives:
 
 | test | result |
 |---|---|
-| Base rule, 1 sigma stop | 24.7% barrier win rate vs 42.2% hurdle, −125R, t = −5.02 |
+| Base rule, 1 sigma stop | 23.0% barrier win rate vs 42.2% hurdle, −125R, t = −5.02 |
 | Stop widened to 4 sigma | −13.7R, t = −0.50 — all cost reduction, no edge |
 | Zero cost | mean R +0.047, t = +0.81 — no gross edge in either direction |
 | Risk gates, held out | −0.352 mean R, worse than ungated |
@@ -968,7 +978,8 @@ fx-risk-engine/
 ├── docs/
 │   ├── diagrams/                # hand-drawn SVG: how the pieces fit
 │   ├── figures/                 # generated from model output
-│   └── make_figures.py          # regenerates docs/figures/
+│   ├── make_figures.py          # regenerates docs/figures/ 01-05
+│   └── make_breakout_figure.py  # regenerates 06 from the intraday backtest
 ├── tests/
 │   ├── test_risk_engine.py         # 70 tests
 │   ├── test_strategy_risk.py       # 12 tests

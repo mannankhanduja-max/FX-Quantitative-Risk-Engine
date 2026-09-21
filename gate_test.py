@@ -180,6 +180,51 @@ def ungated(bars, blocks, stop_sigma, use_be, args):
     return pd.concat(acc, ignore_index=True) if acc else pd.DataFrame()
 
 
+# The search space. Kept as data so the figure script and this one
+# search exactly the same grid - two copies of a grid drift apart,
+# and then the published picture describes a choice this script
+# never made.
+GRID = [
+    (stop_sigma, use_be, use_corr, rho_min)
+    for stop_sigma in (1.0, 2.0, 3.0, 4.0)
+    for use_be in (True, False)
+    for use_corr, rho_min in ((False, 0.0), (True, 0.3), (True, 0.5))
+]
+
+
+def choose_in_sample(bars, gatef, ins, args):
+    """
+    Search GRID on the in-sample block and return (table, best row).
+
+    `best` maximises in-sample mean R among configurations with at
+    least `args.min_trades` trades, or is None if none qualify. The
+    held-out block is never passed in, so it cannot influence the
+    choice - that is the whole contract.
+    """
+    rows = []
+    for stop_sigma, use_be, use_corr, rho_min in GRID:
+        t = pooled(bars, gatef, ins, stop_sigma, use_be,
+                   use_corr, rho_min, args)
+        if t.empty:
+            continue
+        s = barriers.summarise_explicit(t, args.rr)
+        rows.append({
+            "stop_sigma": stop_sigma, "breakeven": use_be,
+            "corr": use_corr, "rho_min": rho_min,
+            "trades": s["trades"],
+            "win_barrier": s["win_rate_barrier"],
+            "meanR": s["mean_net_R"],
+            "totalR": s["total_net_R"],
+        })
+    gdf = pd.DataFrame(rows)
+    if gdf.empty:
+        return gdf, None
+    eligible = gdf[gdf["trades"] >= args.min_trades]
+    if eligible.empty:
+        return gdf, None
+    return gdf, eligible.loc[eligible["meanR"].idxmax()]
+
+
 def report(label: str, trades: pd.DataFrame, rr: float) -> dict:
     if trades.empty:
         print(f"  {label:22s} no trades")
@@ -225,37 +270,14 @@ def main() -> int:
 
     # ---------- STEP 1: choose everything in-sample ----------
     print("\nSTEP 1  in-sample grid. Every choice is made here.\n")
-    grid = []
-    for stop_sigma in (1.0, 2.0, 3.0, 4.0):
-        for use_be in (True, False):
-            for use_corr, rho_min in ((False, 0.0), (True, 0.3), (True, 0.5)):
-                t = pooled(bars, gatef, ins, stop_sigma, use_be,
-                           use_corr, rho_min, args)
-                if t.empty:
-                    continue
-                s = barriers.summarise_explicit(t, args.rr)
-                grid.append({
-                    "stop_sigma": stop_sigma, "breakeven": use_be,
-                    "corr": use_corr, "rho_min": rho_min,
-                    "trades": s["trades"],
-                    "win_barrier": s["win_rate_barrier"],
-                    "meanR": s["mean_net_R"],
-                    "totalR": s["total_net_R"],
-                })
-
-    if not grid:
+    gdf, best = choose_in_sample(bars, gatef, ins, args)
+    if gdf.empty:
         print("  no configuration produced trades in-sample")
         return 1
-
-    gdf = pd.DataFrame(grid)
     print(gdf.round(4).to_string(index=False))
-
-    eligible = gdf[gdf["trades"] >= args.min_trades]
-    if eligible.empty:
+    if best is None:
         print(f"\n  Nothing cleared {args.min_trades} in-sample trades.")
         return 1
-
-    best = eligible.loc[eligible["meanR"].idxmax()]
     print(f"\n  FROZEN: stop {best['stop_sigma']:g} sigma, "
           f"breakeven {bool(best['breakeven'])}, "
           f"correlation {bool(best['corr'])} (rho_min {best['rho_min']:g})")
