@@ -1,0 +1,33 @@
+UNSEEN period - the one-shot test
+
+  EUR/USD   12423 bars  2022-09-22 -> 2024-09-18
+  XAU/USD   11767 bars  2022-09-22 -> 2024-09-18
+  NAS100    11731 bars  2022-09-22 -> 2024-09-18
+  USD/JPY   12423 bars  2022-09-22 -> 2024-09-18
+
+  Frozen: interval=1h, lookback=5, retrace_max_bars=3, stop_min_sigma=1.0, use_trend_filter=False, rr=2.0, max_bars=10, cost_bp=1.0, breakeven=None
+          shallow band (0.33, 0.5)
+
+PRIMARY - shallow, pooled, with costs
+
+  shallow, 1bp/side      n   451  win 29.87%  hurdle 36.99%  meanR -0.0784  t -1.37
+
+PATTERN - depth ordering at zero cost
+
+  shallow 33-50%         n   451  win 29.87%  hurdle 33.33%  meanR +0.0312  t +0.55
+  medium  50-66%         n   391  win 28.40%  hurdle 33.33%  meanR -0.0279  t -0.47
+  deep    66-100%        n   624  win 29.35%  hurdle 33.33%  meanR -0.0052  t -0.11
+
+Per instrument, shallow, with costs
+
+  EUR/USD                n   120  win 31.17%  hurdle 38.70%  meanR -0.0842  t -0.77
+  NAS100                 n   115  win 29.87%  hurdle 35.41%  meanR -0.0243  t -0.22
+  USD/JPY                n   113  win 28.75%  hurdle 37.58%  meanR -0.1058  t -0.91
+  XAU/USD                n   103  win 29.73%  hurdle 36.10%  meanR -0.1018  t -0.84
+
+VERDICT (criteria fixed in the docstring before the run)
+
+  PRIMARY  shallow mean R with costs > 0:  FAIL  (-0.0784, t -1.37)
+  PATTERN  shallow > medium > deep at zero cost:  DOES NOT REPLICATE  (+0.031 / -0.028 / -0.005)
+
+  BACKTEST-ONLY. Not a recommendation to trade.

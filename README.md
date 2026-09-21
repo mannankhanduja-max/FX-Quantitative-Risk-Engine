@@ -873,6 +873,39 @@ cheaper to run a coin flip. The gates made the coin flip smaller.
 
 **BACKTEST-ONLY. Not a recommendation to trade.**
 
+### The one-shot test on unseen data
+
+After sixty-odd configurations, one pattern had both a consistent
+shape and an economic story. On 1-hour bars, shallow pullbacks
+(33-50% of the impulse) did better than medium, and medium better
+than deep. Before costs, shallow reached t = +1.77.
+
+That pattern was found by *looking* at Sep 2024 - Sep 2026, so no
+split of that period could test it cleanly. `prior_period_test.py`
+runs it on **Sep 2022 - Sep 2024**, data nothing in this study had
+touched. The rule and the pass criteria were committed in `c725e6e`
+*before* the run. The redownloaded data was checked first against
+the seen period and reproduced it (517 shallow trades vs 514,
+zero-cost +0.106 vs +0.098).
+
+|  | seen 2024-26 | **unseen 2022-24** |
+|---|---|---|
+| shallow, with costs | −0.006R, t −0.11 | **−0.078R, t −1.37** |
+| shallow, zero cost | +0.106R, t +1.91 | +0.031R, t +0.55 |
+| medium, zero cost | +0.074R | −0.028R |
+| deep, zero cost | −0.002R | −0.005R |
+
+**PRIMARY: FAIL.** **PATTERN: DOES NOT REPLICATE.** All four
+instruments are negative with costs, and the depth ordering is gone.
+The t = +1.91 in the seen period was what the best of sixty tries
+looks like. It was noise that happened to line up with a plausible
+story.
+
+That closes this line of work. The breakout-retracement entry has no
+directional information on these instruments at 15m, 30m or 1h, under
+any bracket, filter or depth band tried. Full output is in
+`results/prior_period_test_2022-2024.txt`.
+
 ### What this still cannot tell you
 
 Moving off Yahoo bought sample size, which is the difference
