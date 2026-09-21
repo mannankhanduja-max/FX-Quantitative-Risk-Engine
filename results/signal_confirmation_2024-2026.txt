@@ -1,0 +1,32 @@
+CONFIRMATION  Sep 2024 - Sep 2026, survivors only, one run
+
+  feature       h cells   mean IC      t        p   hit  edge bp
+  mom_1h        1   100   -0.0156  -3.11   0.0024   65%    -0.11
+  mom_1h       24   100   -0.0189  -4.21   0.0001   67%    -1.26
+  mom_4h        1   100   -0.0239  -5.06   0.0000   68%    -0.14
+  mom_4h       24   100   -0.0357  -4.69   0.0000   69%    -1.85
+  mom_24h       1   100   -0.0243  -6.03   0.0000   73%    -0.31
+  mom_24h       4   100   -0.0436  -6.45   0.0000   72%    -1.43
+  mom_24h      24   100   -0.0826  -4.86   0.0000   69%    -8.84
+  vwap_rev      1   100   +0.0224  +4.81   0.0000   63%    +0.04
+  vwap_rev     24   100   +0.0393  +3.77   0.0003   63%    +1.49
+  poc_rev       1   100   +0.0275  +5.78   0.0000   72%    +0.33
+  poc_rev       4   100   +0.0378  +4.92   0.0000   65%    +0.88
+  poc_rev      24   100   +0.0812  +5.49   0.0000   69%    +8.04
+
+VERDICT  (criteria fixed in the docstring before the run)
+
+  mom_1h      h=1   discovery IC -0.0184 -> confirm -0.0156 (t -3.11)  edge -0.11bp vs 2.0bp   CONFIRMED, too small to trade
+  mom_1h      h=24  discovery IC -0.0142 -> confirm -0.0189 (t -4.21)  edge -1.26bp vs 2.0bp   CONFIRMED, too small to trade
+  mom_4h      h=1   discovery IC -0.0155 -> confirm -0.0239 (t -5.06)  edge -0.14bp vs 2.0bp   CONFIRMED, too small to trade
+  mom_4h      h=24  discovery IC -0.0277 -> confirm -0.0357 (t -4.69)  edge -1.85bp vs 2.0bp   CONFIRMED, too small to trade
+  mom_24h     h=1   discovery IC -0.0196 -> confirm -0.0243 (t -6.03)  edge -0.31bp vs 2.0bp   CONFIRMED, too small to trade
+  mom_24h     h=4   discovery IC -0.0366 -> confirm -0.0436 (t -6.45)  edge -1.43bp vs 2.0bp   CONFIRMED, too small to trade
+  mom_24h     h=24  discovery IC -0.0578 -> confirm -0.0826 (t -4.86)  edge -8.84bp vs 2.0bp   TRADEABLE
+  vwap_rev    h=1   discovery IC +0.0207 -> confirm +0.0224 (t +4.81)  edge +0.04bp vs 2.0bp   CONFIRMED, too small to trade
+  vwap_rev    h=24  discovery IC +0.0383 -> confirm +0.0393 (t +3.77)  edge +1.49bp vs 2.0bp   CONFIRMED, too small to trade
+  poc_rev     h=1   discovery IC +0.0237 -> confirm +0.0275 (t +5.78)  edge +0.33bp vs 2.0bp   CONFIRMED, too small to trade
+  poc_rev     h=4   discovery IC +0.0377 -> confirm +0.0378 (t +4.92)  edge +0.88bp vs 2.0bp   CONFIRMED, too small to trade
+  poc_rev     h=24  discovery IC +0.0742 -> confirm +0.0812 (t +5.49)  edge +8.04bp vs 2.0bp   TRADEABLE
+
+  BACKTEST-ONLY. Not a recommendation to trade.

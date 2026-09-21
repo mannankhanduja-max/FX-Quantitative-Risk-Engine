@@ -1,0 +1,33 @@
+DISCOVERY  Sep 2022 - Sep 2024, 1h bars, all 24 tests
+
+  feature       h cells   mean IC      t        p   hit  edge bp
+  mom_1h        1   100   -0.0184  -3.32   0.0012   59%    +0.06  SURVIVES
+  mom_1h        4   100   -0.0082  -1.88   0.0633   53%    +0.17
+  mom_1h       24   100   -0.0142  -3.06   0.0029   59%    -0.93  SURVIVES
+  mom_4h        1   100   -0.0155  -3.49   0.0007   63%    -0.16  SURVIVES
+  mom_4h        4   100   -0.0055  -0.81   0.4207   46%    +0.01
+  mom_4h       24   100   -0.0277  -3.12   0.0024   60%    -2.76  SURVIVES
+  mom_24h       1   100   -0.0196  -4.60   0.0000   69%    -0.39  SURVIVES
+  mom_24h       4   100   -0.0366  -4.18   0.0001   65%    -1.66  SURVIVES
+  mom_24h      24   100   -0.0578  -3.64   0.0004   67%    -7.30  SURVIVES
+  vwap_rev      1   100   +0.0207  +4.93   0.0000   63%    +0.16  SURVIVES
+  vwap_rev      4   100   +0.0174  +2.41   0.0177   62%    +0.35
+  vwap_rev     24   100   +0.0383  +3.37   0.0011   67%    +2.96  SURVIVES
+  flow_proxy    1   100   +0.0077  +1.68   0.0952   59%    +0.17
+  flow_proxy    4   100   +0.0045  +1.07   0.2894   57%    +0.52
+  flow_proxy   24   100   -0.0120  -2.51   0.0137   58%    -1.54
+  poc_rev       1   100   +0.0237  +5.83   0.0000   74%    +0.44  SURVIVES
+  poc_rev       4   100   +0.0377  +4.51   0.0000   69%    +1.90  SURVIVES
+  poc_rev      24   100   +0.0742  +4.75   0.0000   75%   +10.27  SURVIVES
+  ldn_drive     1   100   -0.0047  -0.79   0.4325   53%    +0.21
+  ldn_drive     4   100   -0.0033  -0.30   0.7669   54%    +0.99
+  ldn_drive    24   100   -0.0447  -2.48   0.0149   59%    -3.39
+  ny_drive      1    96   +0.0133  +1.79   0.0768   57%    +0.67
+  ny_drive      4    96   +0.0150  +1.13   0.2616   54%    +1.22
+  ny_drive     24    96   -0.0101  -0.44   0.6643   52%    -1.68
+
+  Naive p < 0.05: 15 of 24  (about 1.2 expected from noise alone)
+  Holm survivors:   12
+
+  Survivors written to results/signal_survivors.json.
+  Next:  python signal_research.py confirm   (runs ONCE)

@@ -906,6 +906,51 @@ directional information on these instruments at 15m, 30m or 1h, under
 any bracket, filter or depth band tried. Full output is in
 `results/prior_period_test_2022-2024.txt`.
 
+### Signal-first: measuring information before building a trade
+
+Every rule above failed for one reason: the entry carried no
+directional information, and no bracket can create it. So the order
+was reversed. `signal_research.py` measures whether a signal predicts
+the next move *at all*, using rank IC per (instrument, month), tested
+across months so overlapping 24-hour returns cannot inflate t. Holm
+correction is applied across all 24 tests. Candidates, horizons,
+split and pass criteria were committed in `ec1ecf1` before either
+stage ran.
+
+| stage | period | result |
+|---|---|---|
+| Discovery | Sep 2022 - Sep 2024 | 15 of 24 at naive p < .05 (≈1.2 expected by chance); **12 survive Holm** |
+| Confirmation (one run) | Sep 2024 - Sep 2026 | **all 12 confirm**, same sign, mostly stronger |
+
+**These are not twelve findings. They are one: intraday-to-daily
+mean reversion.** Every survivor measures how far price has stretched
+from a recent reference (the last 1-24 hours, the session VWAP, the
+prior session's volume point of control), and every one says the
+stretch partly reverses. On discovery data the reversal signals are
+rank-correlated 0.50-0.74 with each other. Momentum, the London and
+New York open drives, and the order-flow proxy do not survive.
+
+Only two clear the pre-registered cost bar, both at a 24-hour horizon:
+
+| signal | discovery IC | confirmation IC | quintile edge | round trip |
+|---|---|---|---|---|
+| 24h reversal | −0.058 | −0.083 (t −4.9) | 7.3 → 8.8 bp | 2 bp |
+| prior-session POC reversion | +0.074 | +0.081 (t +5.5) | 10.3 → 8.0 bp | 2 bp |
+
+At 1-4 hours the effect is real (t between 3 and 6.5) and far too
+small to trade, at 0.04-1.9bp against 2bp. That is the other half of
+the finding.
+
+What this is **not** yet is a strategy. The quintile edge is a
+long-top, short-bottom spread per 24-hour hold. A real position also
+pays the **overnight financing (swap)** that a 1bp-per-side cost
+model ignores, overlaps with the next day's signal, and has to be
+sized. Short-term reversal in FX is a documented effect, not a new
+one, so the prior is that it exists and is thin. The confirmation
+block was also the period the breakout rules were tested on. These
+signals were never measured there, but it is not virgin data in
+every sense.
+
 ### What this still cannot tell you
 
 Moving off Yahoo bought sample size, which is the difference
