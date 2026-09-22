@@ -167,6 +167,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--interval", default="15m", choices=sorted(INTERVALS))
     ap.add_argument("--years", type=float, default=2.0)
+    ap.add_argument("--start", default=None,
+                    help="YYYY-MM-DD: window START instead of counting "
+                         "back from today. --years then sets its LENGTH. "
+                         "Use with --tag to keep the cache separate.")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the cache filename, e.g. --tag 2021 "
+                         "writes EURUSD_5m_2021.csv and leaves the "
+                         "current cache untouched")
     ap.add_argument("--cache-dir", default=DEFAULT_CACHE)
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--debug", action="store_true")
@@ -198,9 +206,24 @@ def main() -> int:
               "pip install dukascopy-python\n")
         return 1
 
-    end = datetime.now(timezone.utc).replace(tzinfo=None)
-    start = end - timedelta(days=int(args.years * 365))
+    if args.start:
+        # An explicit window, for testing a rule on a period that
+        # was not used to build it. The whole value of a prior
+        # period is that it is untouched, so it gets its own cache
+        # file rather than overwriting the one the rule was
+        # developed on.
+        start = datetime.strptime(args.start, "%Y-%m-%d")
+        end = start + timedelta(days=int(args.years * 365))
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if end > now:
+            end = now
+        if start >= end:
+            raise SystemExit("--start must be in the past")
+    else:
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        start = end - timedelta(days=int(args.years * 365))
 
+    print(f"  window {start:%Y-%m-%d} -> {end:%Y-%m-%d}")
     print(f"Dukascopy, {args.side} side, {args.interval}, "
           f"{start:%Y-%m-%d} -> {end:%Y-%m-%d}")
     print(f"  {len(universe)} instruments, {CHUNK_DAYS}-day chunks, "
@@ -224,6 +247,8 @@ def main() -> int:
 
         os.makedirs(args.cache_dir, exist_ok=True)
         tag = args.interval + ("_ask" if args.side == "ask" else "")
+        if args.tag:
+            tag = f"{tag}_{args.tag}"
         df.to_csv(cache_path(inst.yahoo, tag, args.cache_dir))
         ok += 1
         print(f"      {len(df):7d} bars  {df.index[0]:%Y-%m-%d} -> "

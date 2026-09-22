@@ -55,6 +55,7 @@ import pandas as pd
 
 from fxrisk.data.intraday import session_id
 from fxrisk.strategies import liquidity as lq
+from fxrisk.strategies import smc
 from fxrisk.strategies import sweeps as sw
 
 
@@ -123,7 +124,9 @@ def hourly_bias(bars_1h: pd.DataFrame, cfg: MTFConfig | None = None) -> pd.Serie
 
 
 def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
-               kinds=("breakout", "fakeout", "retrace")) -> pd.DataFrame:
+               kinds=("breakout", "fakeout", "retrace"),
+               zone_frame: pd.DataFrame | None = None,
+               smc_cfg: "smc.SMCConfig | None" = None) -> pd.DataFrame:
     """
     Setups on the 30m frame, each stamped with the time it is KNOWN.
 
@@ -142,6 +145,10 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
     lo_prev = bars_30m["Low"].rolling(cfg.setup_lookback).min().shift(1).to_numpy()
     swept = sw.detect(bars_30m, sw.SweepConfig(lookback=cfg.setup_lookback))["sweep"].to_numpy()
 
+    # Retracement CONFIRMATION. The depth band says how far price
+    # came back; a fair value gap or order block says where it came
+    # back TO. Passing zone_frame requires both - a strictly
+    # stronger condition, so it can only remove trades.
     rows = []
     n = len(bars_30m)
     for i in range(cfg.setup_lookback + 1, n):
@@ -163,6 +170,9 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
                         near = hi_prev[j] + imp * (1 - cfg.retrace_min)
                         far = hi_prev[j] + imp * (1 - cfg.retrace_max)
                         if far <= low[i] <= near:
+                            if zone_frame is not None and not smc.in_zone(
+                                    zone_frame, i, 1.0, low[i], high[i], smc_cfg):
+                                continue
                             rows.append((idx[i] + step, 1.0, hi_prev[j], "retrace"))
                             break
                 if np.isfinite(lo_prev[j]) and close[j] < lo_prev[j]:
@@ -171,6 +181,9 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
                         near = lo_prev[j] - imp * (1 - cfg.retrace_min)
                         far = lo_prev[j] - imp * (1 - cfg.retrace_max)
                         if near <= high[i] <= far:
+                            if zone_frame is not None and not smc.in_zone(
+                                    zone_frame, i, -1.0, low[i], high[i], smc_cfg):
+                                continue
                             rows.append((idx[i] + step, -1.0, lo_prev[j], "retrace"))
                             break
 

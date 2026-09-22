@@ -25,7 +25,7 @@ import config
 from fxrisk.data import intraday
 from fxrisk.research import barrier_prob as bp
 from fxrisk.risk import barriers, spread
-from fxrisk.strategies import mtf
+from fxrisk.strategies import mtf, smc
 
 AGG = {"Open": "first", "High": "max", "Low": "min",
        "Close": "last", "Volume": "sum"}
@@ -46,7 +46,11 @@ def run_one(inst, args, kinds):
                         trigger_window=args.trigger_window,
                         max_bars_30m=args.max_bars)
 
-    setups = mtf.setups_30m(b30, cfg, kinds=kinds)
+    zf = None
+    if args.confirm != "none":
+        zf = smc.zones(b30, use_fvg=args.confirm in ("fvg", "both"),
+                       use_ob=args.confirm in ("ob", "both"))
+    setups = mtf.setups_30m(b30, cfg, kinds=kinds, zone_frame=zf)
     bias = mtf.hourly_bias(b1h, cfg) if args.bias else None
     entries = mtf.entries_5m(b5, setups, bias, cfg)
 
@@ -152,6 +156,10 @@ def main():
     ap.add_argument("--bias", action="store_true", default=True)
     ap.add_argument("--no-bias", dest="bias", action="store_false",
                     help="drop the 1h session-VWAP / 9-EMA direction filter")
+    ap.add_argument("--confirm", default="both",
+                    choices=("none", "fvg", "ob", "both"),
+                    help="retracement must land in a fair value gap "
+                         "and/or an order block")
     ap.add_argument("--kinds", default="breakout,fakeout,retrace")
     args = ap.parse_args()
     kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
@@ -159,6 +167,7 @@ def main():
     print("MULTI-TIMEFRAME CASCADE  1h bias -> 30m setup -> 5m trigger -> 30m exit")
     print(f"  {args.rr:g}:1, stop floor {args.stop_sigma:g} sigma (5m), "
           f"{args.cost_bp:g}bp/side, setups: {','.join(kinds)}")
+    print(f"  retrace confirmation: {args.confirm}")
     print(f"  1h bias filter: {'on' if args.bias else 'OFF (no VWAP, no 9 EMA)'}")
     print(f"  sessions: {args.sessions}   blackout: {args.blackout}   "
           f"cost: {args.cost}"
