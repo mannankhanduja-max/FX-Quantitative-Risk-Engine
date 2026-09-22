@@ -66,8 +66,21 @@ PAUSE_SECONDS = 1.5
 
 
 def fetch_one(dk, instrument: str, interval_attr: str,
-              start: datetime, end: datetime, debug: bool = False):
-    """Pull one instrument in chunks and concatenate."""
+              start: datetime, end: datetime, debug: bool = False,
+              side: str = "bid"):
+    """
+    Pull one instrument in chunks and concatenate.
+
+    `side` selects bid or ask. Fetching BOTH and subtracting is
+    the only way to get the real spread out of this feed - every
+    range- or volume-based estimate of it is a proxy, and
+    fxrisk/risk/spread.py documents two that fail at intraday
+    frequency. Ask minus bid is measured.
+
+        python fetch_intraday.py --interval 5m --years 2 --side ask
+
+    writes a parallel `_ask` cache alongside the bid one.
+    """
     import pandas as pd
 
     interval = getattr(dk, interval_attr)
@@ -76,7 +89,8 @@ def fetch_one(dk, instrument: str, interval_attr: str,
     while cursor < end:
         stop = min(cursor + timedelta(days=CHUNK_DAYS), end)
         try:
-            df = dk.fetch(instrument, interval, dk.OFFER_SIDE_BID,
+            offer = dk.OFFER_SIDE_ASK if side == "ask" else dk.OFFER_SIDE_BID
+            df = dk.fetch(instrument, interval, offer,
                           cursor, stop, debug=debug)
             if df is not None and len(df):
                 frames.append(df)
@@ -156,6 +170,9 @@ def main() -> int:
     ap.add_argument("--cache-dir", default=DEFAULT_CACHE)
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--side", default="bid", choices=("bid", "ask"),
+                    help="ask writes a parallel _ask cache; "
+                         "ask minus bid is the real spread")
     args = ap.parse_args()
 
     universe = config.UNIVERSE_INTRADAY
@@ -184,7 +201,7 @@ def main() -> int:
     end = datetime.now(timezone.utc).replace(tzinfo=None)
     start = end - timedelta(days=int(args.years * 365))
 
-    print(f"Dukascopy, bid side, {args.interval}, "
+    print(f"Dukascopy, {args.side} side, {args.interval}, "
           f"{start:%Y-%m-%d} -> {end:%Y-%m-%d}")
     print(f"  {len(universe)} instruments, {CHUNK_DAYS}-day chunks, "
           f"{PAUSE_SECONDS:g}s between\n")
@@ -193,7 +210,7 @@ def main() -> int:
     for inst in universe:
         print(f"  {inst.name:9s} {inst.dukascopy:12s} ...", flush=True)
         raw = fetch_one(dk, inst.dukascopy, INTERVALS[args.interval],
-                        start, end, args.debug)
+                        start, end, args.debug, side=args.side)
         if raw is None:
             print("      nothing returned")
             continue
@@ -206,7 +223,8 @@ def main() -> int:
             continue
 
         os.makedirs(args.cache_dir, exist_ok=True)
-        df.to_csv(cache_path(inst.yahoo, args.interval, args.cache_dir))
+        tag = args.interval + ("_ask" if args.side == "ask" else "")
+        df.to_csv(cache_path(inst.yahoo, tag, args.cache_dir))
         ok += 1
         print(f"      {len(df):7d} bars  {df.index[0]:%Y-%m-%d} -> "
               f"{df.index[-1]:%Y-%m-%d}  "
