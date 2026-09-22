@@ -171,8 +171,17 @@ def order_blocks(bars: pd.DataFrame,
 
 
 def zones(bars: pd.DataFrame, cfg: SMCConfig | None = None,
-          use_fvg: bool = True, use_ob: bool = True) -> pd.DataFrame:
-    """Both zone types in one frame, sorted by when they are known."""
+          use_fvg: bool = True, use_ob: bool = False) -> pd.DataFrame:
+    """
+    Zone frame, sorted by when each zone is known.
+
+    Order blocks default OFF. Measured on 4856 retracements they
+    came back at 33.33% against a 33.33% no-information
+    benchmark, z -0.00 - the coin flip to four decimal places -
+    and including them diluted the fair-value-gap result. The
+    implementation stays, and `use_ob=True` reproduces the
+    measurement; it is simply not part of the rule.
+    """
     cfg = cfg or SMCConfig()
     parts = []
     if use_fvg:

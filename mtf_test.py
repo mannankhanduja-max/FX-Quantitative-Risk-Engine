@@ -156,7 +156,7 @@ def main():
     ap.add_argument("--bias", action="store_true", default=True)
     ap.add_argument("--no-bias", dest="bias", action="store_false",
                     help="drop the 1h session-VWAP / 9-EMA direction filter")
-    ap.add_argument("--confirm", default="both",
+    ap.add_argument("--confirm", default="fvg",
                     choices=("none", "fvg", "ob", "both"),
                     help="retracement must land in a fair value gap "
                          "and/or an order block")
