@@ -209,6 +209,12 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                 continue
             if bias[k] != s.side:
                 continue
+            # THE TRIGGER: this 5m bar closed beyond the PREVIOUS
+            # 5m close, in the setup's direction. Nothing else.
+            # Deliberately not "beyond the 30m setup level" - the
+            # 30m bar already closed beyond it, and re-requiring
+            # that would just demand the move continue, turning a
+            # retracement entry into a second breakout entry.
             moved = close[k] > close[k - 1] if s.side > 0 else close[k] < close[k - 1]
             if not moved:
                 continue

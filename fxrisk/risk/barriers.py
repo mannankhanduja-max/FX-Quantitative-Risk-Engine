@@ -51,6 +51,11 @@ import numpy as np
 import pandas as pd
 
 
+def _is_seq(x) -> bool:
+    """A per-bar cost series, as opposed to one flat number."""
+    return hasattr(x, "__len__") and not isinstance(x, (str, bytes))
+
+
 def ewma_sigma(returns: pd.Series, lam: float = 0.94) -> pd.Series:
     """
     EWMA daily volatility, shifted one bar so it is causal.
@@ -400,7 +405,11 @@ def walk_explicit(
         next_free = i + max(held, 1)
 
         gross_r = side * (exit_px - entry) / stop_d
-        cost_r = (2 * cost_bp / 10_000) * entry / stop_d
+        # cost_bp may be a per-bar series: the spread is not a
+        # constant, and a rule that fires on news prints and at
+        # the rollover pays more there. See fxrisk/risk/spread.py.
+        cbp = float(cost_bp[i]) if _is_seq(cost_bp) else float(cost_bp)
+        cost_r = (2 * cbp / 10_000) * entry / stop_d
 
         out.append(
             {

@@ -24,7 +24,7 @@ import pandas as pd
 import config
 from fxrisk.data import intraday
 from fxrisk.research import barrier_prob as bp
-from fxrisk.risk import barriers
+from fxrisk.risk import barriers, spread
 from fxrisk.strategies import mtf
 
 AGG = {"Open": "first", "High": "max", "Low": "min",
@@ -60,13 +60,27 @@ def run_one(inst, args, kinds):
         keep = mtf.in_sessions(pd.DatetimeIndex(entries["time"]), names)
         entries = entries[keep.to_numpy()].reset_index(drop=True)
 
+    # Spread blackouts: refuse the rollover and the recurring
+    # release slots outright. Clock rules, stated in advance.
+    if args.blackout and not entries.empty:
+        bad = spread.blackout(pd.DatetimeIndex(entries["time"]))
+        entries = entries[~bad.to_numpy()].reset_index(drop=True)
+
     pos = mtf.to_30m_positions(entries, b30)
     if pos.empty:
         return None, None, b5
 
+    # Cost: flat, or shaped by activity so the rollover and the
+    # dead hours pay what they should. Same median either way.
+    if args.variable_cost:
+        cost = spread.cost_bp_series(b30, base_bp=args.cost_bp,
+                                     power=args.cost_power).to_numpy()
+    else:
+        cost = args.cost_bp
+
     trades = barriers.walk_explicit(
         b30, pos.sort_values("bar")[["bar", "side", "entry", "stop"]],
-        rr=args.rr, max_bars=cfg.max_bars_30m, cost_bp=args.cost_bp,
+        rr=args.rr, max_bars=cfg.max_bars_30m, cost_bp=cost,
         breakeven_frac=None,
     )
     # walk_explicit drops overlapping entries, so the kind column
@@ -123,6 +137,11 @@ def main():
     ap.add_argument("--cost-bp", type=float, default=config.BREAKOUT_COST_BP)
     ap.add_argument("--sessions", default="per-instrument",
                     help="per-instrument | all | london+newyork | ...")
+    ap.add_argument("--blackout", action="store_true", default=True)
+    ap.add_argument("--no-blackout", dest="blackout", action="store_false")
+    ap.add_argument("--variable-cost", action="store_true", default=True)
+    ap.add_argument("--flat-cost", dest="variable_cost", action="store_false")
+    ap.add_argument("--cost-power", type=float, default=0.5)
     ap.add_argument("--kinds", default="breakout,fakeout,retrace")
     args = ap.parse_args()
     kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
@@ -130,7 +149,8 @@ def main():
     print("MULTI-TIMEFRAME CASCADE  1h bias -> 30m setup -> 5m trigger -> 30m exit")
     print(f"  {args.rr:g}:1, stop floor {args.stop_sigma:g} sigma (5m), "
           f"{args.cost_bp:g}bp/side, setups: {','.join(kinds)}")
-    print(f"  sessions: {args.sessions}")
+    print(f"  sessions: {args.sessions}   blackout: {args.blackout}   "
+          f"cost: {'activity-shaped' if args.variable_cost else 'flat'}")
 
     pool = []
     for inst in config.UNIVERSE_INTRADAY:

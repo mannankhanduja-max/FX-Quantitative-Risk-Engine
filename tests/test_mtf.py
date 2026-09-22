@@ -251,3 +251,29 @@ def test_every_instrument_has_a_declared_window():
         assert inst.name in mtf.INSTRUMENT_SESSIONS
         for s in mtf.INSTRUMENT_SESSIONS[inst.name]:
             assert s in mtf.SESSION_WINDOWS
+
+
+def test_the_5m_trigger_is_the_previous_5m_close_and_nothing_else():
+    """
+    A long triggers on a 5m bar closing ABOVE the previous 5m
+    close; a short below it. Not above the 30m setup level - the
+    30m bar already closed beyond that, and re-requiring it would
+    demand the move continue, which turns a retracement entry into
+    a second breakout entry.
+    """
+    idx = pd.date_range("2024-01-02 09:00", periods=8, freq="5min",
+                        tz="America/New_York")
+    c = np.array([100.0, 99.9, 99.8, 100.1, 100.2, 100.3, 100.4, 100.5])
+    b5 = pd.DataFrame({"Open": c, "High": c + 0.05, "Low": c - 0.05,
+                       "Close": c, "Volume": 1000.0}, index=idx)
+    setups = pd.DataFrame([{"known_at": idx[1], "side": 1.0,
+                            "level": 99.0, "kind": "test"}])
+    bias = pd.Series(1.0, index=pd.date_range(
+        "2024-01-02 07:00", periods=4, freq="1h", tz="America/New_York"))
+
+    e = mtf.entries_5m(b5, setups, bias)
+    assert len(e) == 1
+    k = list(idx).index(e.iloc[0]["time"])
+    assert c[k] > c[k - 1], "triggered on a bar that closed lower"
+    # Bars 1 and 2 fell; the first bar closing up is bar 3.
+    assert e.iloc[0]["time"] == idx[3]
