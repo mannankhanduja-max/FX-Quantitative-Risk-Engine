@@ -75,29 +75,89 @@ It stays in the module because the negative result is worth
 keeping and because it is correct at daily frequency, where
 `histdata.py` bars could use it.
 
-WHAT IS USED INSTEAD: ACTIVITY
--------------------------------
-Tick count per bar. In FX microstructure the quoted spread is
-roughly inverse to quoting activity, and unlike the range-based
-estimator it has the right SHAPE at this frequency, on every
-instrument here:
+THE PROXIES ARE NOW OBSOLETE: THE SPREAD IS MEASURED
+------------------------------------------------------
+`fetch_intraday.py --side ask` was run. Ask minus bid over the
+mid is the spread, and it settles every question the proxies
+could not. Median, basis points per side, two years of 5m bars:
 
-    EUR/USD   925 ticks at 10:00 ET   ->   68 at 17:00     13.6x
-    USD/JPY  1813 ticks at 10:00 ET   ->  111 at 17:00     16.3x
-    XAU/USD  0.35 lots at 10:00 ET    -> 0.08 at 16:00      4.4x
-    NAS100   0.23 lots at 10:00 ET    -> 0.04 at 18:00      5.8x
+    EUR/USD   0.34      USD/JPY   0.34
+    NAS100    0.53      XAU/USD   1.62
 
-Normalising by each instrument's own median makes the differing
-units irrelevant - gold and the index report lots, not tick
-counts, so only the ratio is meaningful.
+Three things follow, and two of them overturn earlier work in
+this repository.
 
-This is a PROXY and is not the spread. The real fix is one
-download away: Dukascopy serves the ask side as well as the bid,
-and ask minus bid is the spread, measured rather than inferred.
-`fetch_intraday.py --side ask` gets it. Until then the honest
-description of what follows is "cost shaped like inverse
-activity, with the same median as the flat rate", not "the
-spread".
+1  THE FLAT 1bp WAS NOT CONSERVATIVE FOR THE MAJORS. It was
+   THREE TIMES the real spread on EUR/USD and USD/JPY, and
+   roughly two thirds of it on gold. Every pooled result in this
+   study charged the majors about 3x too much and gold about 1.5x
+   too little. The direction of the error was not uniform, so it
+   did not simply make things look worse - it reshuffled which
+   instruments appeared to work.
+
+2  THE ROLLOVER BLACKOUT WAS RIGHT, and the magnitude is larger
+   than assumed. 16:55-18:00 ET against each instrument's own
+   median:
+
+       USD/JPY  3.20 bp   9.3x        EUR/USD  2.21 bp   6.5x
+       XAU/USD  2.90 bp   1.8x        NAS100   0.51 bp   1.0x
+
+3  THE NEWS BLACKOUT WAS WRONG, and this is the finding worth
+   keeping. At 08:30 and 14:00 ET the MEDIAN spread is at or
+   BELOW the daily median for the FX majors:
+
+       window            EUR/USD   USD/JPY   XAU/USD   NAS100
+       08:25-08:50        0.9x      1.0x      1.0x      2.2x
+       13:55-14:20        0.8x      0.9x      1.0x      0.9x
+
+   On a five-minute bar the release widening has already come and
+   gone: it lives in the seconds around the print, and the bar's
+   closing quote is taken after the book has refilled. What the
+   release does is fatten the TAIL, not move the median - first-
+   Friday 08:25-08:40 on EUR/USD is 0.40 median but 2.23 at the
+   90th percentile and 5.25 at the maximum.
+
+   So a blanket clock blackout around releases is the wrong
+   instrument. It refuses every trade in a window where most bars
+   are cheap, in order to avoid a minority that are not. A
+   threshold on the OBSERVED spread refuses exactly the expensive
+   ones and nothing else, and now that the spread is observed
+   rather than inferred, that is available. `wide_spread` is that
+   gate; NAS100 keeps a clock rule for 08:30 because the index
+   genuinely reprices on US data before its own cash open.
+
+WHAT THE MEASURED SPREAD STILL IS NOT
+--------------------------------------
+It is Dukascopy's ECN aggregate. A retail account pays commission
+on top - commonly around 0.35 bp per side - or a marked-up spread
+instead, and neither is in this number. It also says nothing about
+slippage: the spread is what you are quoted, not what you get on
+a market order into a thin book, and the trades this strategy
+likes are exactly the ones where those differ. `--commission-bp`
+adds the first; the second remains unmodelled and is a reason to
+treat every result here as optimistic.
+
+THE PROXIES BELOW ARE KEPT AS MEASURED FAILURES
+------------------------------------------------
+Both are wrong in the same direction, and the reason is the same:
+at intraday frequency they track ACTIVITY, and activity is not
+spread.
+
+CORWIN-SCHULTZ (2012, JF 67(2)) infers the spread from high-low
+ranges. Against the real spread by hour it is not merely noisy,
+it is inverted - it calls the 17:00 rollover, the widest hour of
+the day at 6-9x, the NARROWEST. At five minutes the range is
+dominated by price movement rather than bid-ask bounce. It is a
+daily-bar estimator.
+
+INVERSE TICK ACTIVITY got the rollover right, which is why it was
+used, but it prices news windows CHEAP because ticks and spread
+both spike there. It would have said the expensive tail was the
+cheap part.
+
+Neither is needed now for 5m data. Both stay, with these numbers,
+because a proxy that has been checked against the truth and found
+wrong is more useful than one that has not been checked.
 
 BACKTEST-ONLY.
 """
@@ -234,17 +294,23 @@ def cost_bp_series(bars: pd.DataFrame, base_bp: float = 1.0,
 
 ROLLOVER = (16, 45, 18, 0)          # 16:45-18:00 ET
 
-RELEASE_SLOTS = [
-    (8, 30),
-    (10, 0),
-    (14, 0),
-]
-RELEASE_BEFORE_MIN = 10             # providers widen ahead of the print
+# The measured spread says the FX majors do NOT widen at the
+# median around 08:30 or 14:00 ET on a five-minute bar - the
+# widening is sub-minute and gone by the close. So the clock
+# blackout is reduced to the one case the data supports: NAS100
+# before its own cash open, where US data genuinely reprices the
+# index at 2.2x its median spread. Everything else is handled by
+# `wide_spread`, which refuses the expensive bars themselves
+# rather than every bar that shares their hour.
+RELEASE_SLOTS: list[tuple[int, int]] = []
+INDEX_PREOPEN_SLOTS = [(8, 30)]
+
+RELEASE_BEFORE_MIN = 10
 RELEASE_AFTER_MIN = 20
 
 
 def blackout(index: pd.DatetimeIndex, rollover: bool = True,
-             releases: bool = True) -> pd.Series:
+             releases: bool = True, index_preopen: bool = False) -> pd.Series:
     """
     True where a trade should be REFUSED on spread grounds.
 
@@ -260,8 +326,11 @@ def blackout(index: pd.DatetimeIndex, rollover: bool = True,
         h0, m0, h1, m1 = ROLLOVER
         out |= (mins >= h0 * 60 + m0) & (mins < h1 * 60 + m1)
 
-    if releases:
-        for h, m in RELEASE_SLOTS:
+    slots = list(RELEASE_SLOTS) if releases else []
+    if index_preopen:
+        slots += INDEX_PREOPEN_SLOTS
+    if slots:
+        for h, m in slots:
             t = h * 60 + m
             out |= (mins >= t - RELEASE_BEFORE_MIN) & (mins <= t + RELEASE_AFTER_MIN)
 
@@ -283,3 +352,63 @@ def wide_spread(bars: pd.DataFrame, multiple: float = 3.0,
     s = smoothed(bars, window=window)
     med = s.rolling(trailing, min_periods=200).median()
     return ((s > multiple * med) & med.notna()).rename("wide_spread")
+
+
+# ============================================================
+# THE MEASURED SPREAD
+# ============================================================
+
+
+def real_spread(symbol: str, interval: str = "5m",
+                cache_dir: str | None = None) -> pd.Series:
+    """
+    Observed proportional spread per bar: (ask - bid) / mid.
+
+    Needs the parallel ask cache from
+    `fetch_intraday.py --side ask`. Bars present on one side only
+    are dropped rather than filled - a missing quote is not a
+    zero spread.
+    """
+    from fxrisk.data import intraday as _in
+
+    kw = {} if cache_dir is None else {"cache_dir": cache_dir}
+    bid = _in.load_symbol(symbol, interval, **kw)
+    ask = _in.load_symbol(symbol, f"{interval}_ask", **kw)
+
+    j = bid[["Close"]].join(ask[["Close"]], how="inner",
+                            lsuffix="_b", rsuffix="_a")
+    mid = (j["Close_a"] + j["Close_b"]) / 2.0
+    s = (j["Close_a"] - j["Close_b"]) / mid
+
+    # A crossed book is a data error, not a negative cost.
+    bad = int((s < 0).sum())
+    s = s.clip(lower=0.0)
+    s.attrs["crossed_bars"] = bad
+    return s.rename("spread")
+
+
+def real_cost_bp(bars: pd.DataFrame, symbol: str, interval: str = "5m",
+                 commission_bp: float = 0.0,
+                 cache_dir: str | None = None) -> pd.Series:
+    """
+    Per-bar cost in bp PER SIDE: half the measured spread, plus
+    commission.
+
+    Half, because crossing the spread once costs half of it
+    relative to the mid, and `walk_explicit` charges two sides.
+    Reindexed onto `bars` - which may be a coarser frame than the
+    spread was measured on - by taking the MEDIAN of the spreads
+    inside each bar rather than the last, so one stale quote at a
+    bar boundary cannot set the price of the whole bar.
+    """
+    if commission_bp < 0:
+        raise ValueError("commission_bp cannot be negative")
+
+    s = real_spread(symbol, interval, cache_dir=cache_dir) * 10_000.0 / 2.0
+    if bars.index.equals(s.index):
+        out = s
+    else:
+        step = pd.Series(bars.index).diff().median()
+        out = (s.resample(step, origin=bars.index[0]).median()
+                .reindex(bars.index))
+    return (out.ffill().fillna(out.median()) + commission_bp).rename("cost_bp")

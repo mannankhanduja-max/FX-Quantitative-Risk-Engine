@@ -63,7 +63,8 @@ def run_one(inst, args, kinds):
     # Spread blackouts: refuse the rollover and the recurring
     # release slots outright. Clock rules, stated in advance.
     if args.blackout and not entries.empty:
-        bad = spread.blackout(pd.DatetimeIndex(entries["time"]))
+        bad = spread.blackout(pd.DatetimeIndex(entries["time"]),
+                              index_preopen=(inst.kind == "index"))
         entries = entries[~bad.to_numpy()].reset_index(drop=True)
 
     pos = mtf.to_30m_positions(entries, b30)
@@ -72,7 +73,10 @@ def run_one(inst, args, kinds):
 
     # Cost: flat, or shaped by activity so the rollover and the
     # dead hours pay what they should. Same median either way.
-    if args.variable_cost:
+    if args.cost == "real":
+        cost = spread.real_cost_bp(b30, inst.yahoo, "5m",
+                                   commission_bp=args.commission_bp).to_numpy()
+    elif args.cost == "activity":
         cost = spread.cost_bp_series(b30, base_bp=args.cost_bp,
                                      power=args.cost_power).to_numpy()
     else:
@@ -139,8 +143,11 @@ def main():
                     help="per-instrument | all | london+newyork | ...")
     ap.add_argument("--blackout", action="store_true", default=True)
     ap.add_argument("--no-blackout", dest="blackout", action="store_false")
-    ap.add_argument("--variable-cost", action="store_true", default=True)
-    ap.add_argument("--flat-cost", dest="variable_cost", action="store_false")
+    ap.add_argument("--cost", default="real",
+                    choices=("real", "activity", "flat"),
+                    help="real = measured ask-bid; the others are proxies")
+    ap.add_argument("--commission-bp", type=float, default=0.0,
+                    help="per side, on top of the measured spread")
     ap.add_argument("--cost-power", type=float, default=0.5)
     ap.add_argument("--kinds", default="breakout,fakeout,retrace")
     args = ap.parse_args()
@@ -150,7 +157,8 @@ def main():
     print(f"  {args.rr:g}:1, stop floor {args.stop_sigma:g} sigma (5m), "
           f"{args.cost_bp:g}bp/side, setups: {','.join(kinds)}")
     print(f"  sessions: {args.sessions}   blackout: {args.blackout}   "
-          f"cost: {'activity-shaped' if args.variable_cost else 'flat'}")
+          f"cost: {args.cost}"
+          + (f" +{args.commission_bp:g}bp commission" if args.commission_bp else ""))
 
     pool = []
     for inst in config.UNIVERSE_INTRADAY:

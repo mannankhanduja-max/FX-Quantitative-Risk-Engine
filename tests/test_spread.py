@@ -151,14 +151,36 @@ def test_the_rollover_is_blacked_out():
     assert not bool(out.iloc[2])
 
 
-def test_the_window_opens_before_the_release_not_at_it():
-    """Providers widen ahead of the print. Blacking out only the
-    minute after it is the mistake this pins."""
-    out = spread.blackout(_et("2024-01-02 08:25", "2024-01-02 08:30",
-                              "2024-01-02 08:45", "2024-01-02 09:05"))
-    assert bool(out.iloc[0])               # five minutes before
-    assert bool(out.iloc[1]) and bool(out.iloc[2])
-    assert not bool(out.iloc[3])           # well clear afterwards
+def test_the_blanket_news_blackout_was_removed_on_evidence():
+    """
+    It was there on the assumption that spreads blow out at
+    08:30 and 14:00 ET. The measured ask-bid data says they do
+    not, at the median, on a five-minute bar: 0.8-1.0x the daily
+    median for the FX majors. The widening is sub-minute and has
+    passed by the bar's close. Re-adding a blanket clock rule
+    here would refuse a window of mostly-cheap bars to avoid a
+    minority of expensive ones - which is what `wide_spread` is
+    for.
+    """
+    assert spread.RELEASE_SLOTS == []
+    t = _et("2024-01-02 08:30", "2024-01-02 14:00")
+    assert not spread.blackout(t).any()
+
+
+def test_the_index_preopen_rule_survives_because_the_data_backs_it():
+    """NAS100 at 08:30 ET measured 2.2x its median - US data
+    repricing the index before its own cash open. That one is
+    real, so it stays, and only for the index."""
+    t = _et("2024-01-02 08:30")
+    assert spread.blackout(t, index_preopen=True).iloc[0]
+    assert not spread.blackout(t, index_preopen=False).iloc[0]
+
+
+def test_a_preopen_window_opens_before_the_slot_not_at_it():
+    out = spread.blackout(_et("2024-01-02 08:25", "2024-01-02 08:45",
+                              "2024-01-02 09:05"), index_preopen=True)
+    assert bool(out.iloc[0]) and bool(out.iloc[1])
+    assert not bool(out.iloc[2])
 
 
 def test_the_mask_excludes_rather_than_keeps():
@@ -170,8 +192,75 @@ def test_the_mask_excludes_rather_than_keeps():
 
 def test_each_component_can_be_switched_off():
     t = _et("2024-01-02 17:00")
-    assert not spread.blackout(t, rollover=False, releases=True).iloc[0]
+    assert not spread.blackout(t, rollover=False).iloc[0]
     assert spread.blackout(t, rollover=True, releases=False).iloc[0]
+
+
+# ------------------------------------------------------------
+# The measured spread
+# ------------------------------------------------------------
+
+def test_real_spread_is_ask_minus_bid_over_mid():
+    s = spread.real_spread("EURUSD", "5m")
+    assert len(s) > 100_000
+    assert 0 < s.median() * 10_000 < 1.0        # ~0.34 bp
+    assert (s >= 0).all()
+
+
+def test_a_crossed_book_is_a_data_error_not_a_negative_cost():
+    s = spread.real_spread("EURUSD", "5m")
+    assert s.attrs["crossed_bars"] == 0
+    assert s.min() >= 0
+
+
+def test_the_rollover_really_is_the_widest_hour():
+    """The claim the blackout rests on, checked against the data
+    rather than against a proxy."""
+    s = spread.real_spread("USDJPY", "5m")
+    et = s.index.tz_convert("America/New_York")
+    by_hour = s.groupby(et.hour).median()
+    assert by_hour.idxmax() == 17
+    assert by_hour.max() / s.median() > 5
+
+
+def test_cost_is_HALF_the_spread_per_side():
+    """walk_explicit charges two sides. Charging the full spread
+    on each would double the real cost."""
+    from fxrisk.data import intraday as _in
+    b = _in.load_symbol("EURUSD", "5m")
+    c = spread.real_cost_bp(b, "EURUSD", "5m")
+    s = spread.real_spread("EURUSD", "5m") * 10_000
+    assert c.median() == pytest.approx(s.median() / 2, rel=0.02)
+
+
+def test_commission_is_added_per_side():
+    from fxrisk.data import intraday as _in
+    b = _in.load_symbol("EURUSD", "5m")
+    base = spread.real_cost_bp(b, "EURUSD", "5m")
+    with_c = spread.real_cost_bp(b, "EURUSD", "5m", commission_bp=0.35)
+    assert (with_c - base).median() == pytest.approx(0.35, abs=1e-9)
+
+
+def test_real_cost_rejects_negative_commission():
+    from fxrisk.data import intraday as _in
+    b = _in.load_symbol("EURUSD", "5m")
+    with pytest.raises(ValueError, match="cannot be negative"):
+        spread.real_cost_bp(b, "EURUSD", "5m", commission_bp=-1.0)
+
+
+def test_coarser_bars_take_the_median_not_the_last_quote():
+    """One stale quote at a bar boundary must not price the bar."""
+    from fxrisk.data import intraday as _in
+    b = _in.load_symbol("EURUSD", "5m")
+    b30 = b.resample("30min", label="left", closed="left").agg(
+        {"Open": "first", "High": "max", "Low": "min",
+         "Close": "last", "Volume": "sum"}).dropna()
+    b30 = b30[b30["Volume"] > 0]
+    c = spread.real_cost_bp(b30, "EURUSD", "5m")
+    assert len(c) == len(b30) and c.notna().all()
+    # The 30m median tracks the 5m median, not its tail.
+    assert c.median() == pytest.approx(
+        spread.real_cost_bp(b, "EURUSD", "5m").median(), rel=0.15)
 
 
 # ------------------------------------------------------------
