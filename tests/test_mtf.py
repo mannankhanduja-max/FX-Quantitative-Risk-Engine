@@ -277,3 +277,37 @@ def test_the_5m_trigger_is_the_previous_5m_close_and_nothing_else():
     assert c[k] > c[k - 1], "triggered on a bar that closed lower"
     # Bars 1 and 2 fell; the first bar closing up is bar 3.
     assert e.iloc[0]["time"] == idx[3]
+
+
+def test_bias_none_removes_the_direction_filter_entirely():
+    """
+    No session VWAP, no 9 EMA. Every setup becomes actionable in
+    its own direction regardless of the hourly trend - which must
+    produce at least as many entries, never fewer.
+    """
+    b5 = _frame(900, "5min", seed=11)
+    b30 = b5.resample("30min").agg({"Open": "first", "High": "max", "Low": "min",
+                                    "Close": "last", "Volume": "sum"}).dropna()
+    b1h = b5.resample("1h").agg({"Open": "first", "High": "max", "Low": "min",
+                                 "Close": "last", "Volume": "sum"}).dropna()
+    s = mtf.setups_30m(b30)
+    gated = mtf.entries_5m(b5, s, mtf.hourly_bias(b1h))
+    free = mtf.entries_5m(b5, s, None)
+    assert len(free) >= len(gated)
+
+
+def test_removing_the_bias_does_not_reintroduce_lookahead():
+    """The 5m trigger must still depend only on closed 5m bars."""
+    b5 = _frame(600, "5min", seed=12)
+    b30 = b5.resample("30min").agg({"Open": "first", "High": "max", "Low": "min",
+                                    "Close": "last", "Volume": "sum"}).dropna()
+    s = mtf.setups_30m(b30)
+    base = mtf.entries_5m(b5, s, None)
+    shocked = b5.copy()
+    k = shocked.index[-1]
+    shocked.loc[k, ["High", "Close"]] *= 1.05
+    after = mtf.entries_5m(shocked, s, None)
+    n = min(len(base), len(after))
+    if n:
+        assert np.allclose(base["entry"].to_numpy()[:n],
+                           after["entry"].to_numpy()[:n])

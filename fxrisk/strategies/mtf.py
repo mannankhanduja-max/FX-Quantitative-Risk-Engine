@@ -178,7 +178,7 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
 
 
 def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
-               bias_1h: pd.Series, cfg: MTFConfig | None = None) -> pd.DataFrame:
+               bias_1h: pd.Series | None, cfg: MTFConfig | None = None) -> pd.DataFrame:
     """
     The 5m trigger: first bar closing in the setup's direction, with
     the completed 1h bias agreeing.
@@ -197,7 +197,15 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
     r = np.log(bars_5m["Close"]).diff()
     sig = np.sqrt(r.pow(2).ewm(alpha=1 - cfg.lam, adjust=False).mean()).shift(1).to_numpy()
 
-    bias = align_to(bars_5m.index, bias_1h).to_numpy()
+    # bias_1h=None removes the 1h direction filter entirely - no
+    # session VWAP, no 9 EMA. The setup's own side then decides,
+    # and every setup becomes actionable in both directions. This
+    # is not a small variant: it is the whole top of the cascade
+    # switched off, and it roughly doubles the trade count, which
+    # is worth having for its own sake because statistical power
+    # on a 6bp effect is the binding constraint everywhere here.
+    bias = (None if bias_1h is None
+            else align_to(bars_5m.index, bias_1h).to_numpy())
     idx = bars_5m.index
 
     rows = []
@@ -207,7 +215,7 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
         for k in range(start, min(start + cfg.trigger_window, len(idx) - 1)):
             if k <= last_bar or not np.isfinite(sig[k]) or sig[k] <= 0:
                 continue
-            if bias[k] != s.side:
+            if bias is not None and bias[k] != s.side:
                 continue
             # THE TRIGGER: this 5m bar closed beyond the PREVIOUS
             # 5m close, in the setup's direction. Nothing else.
