@@ -49,6 +49,17 @@ def run_one(inst, args, kinds):
     setups = mtf.setups_30m(b30, cfg, kinds=kinds)
     bias = mtf.hourly_bias(b1h, cfg)
     entries = mtf.entries_5m(b5, setups, bias, cfg)
+
+    # Session filter, applied at the TRIGGER bar - the moment the
+    # order would be sent. Filtering the 30m setup instead would
+    # admit a trade whose entry landed an hour outside the window.
+    if args.sessions != "all" and not entries.empty:
+        names = (mtf.INSTRUMENT_SESSIONS[inst.name]
+                 if args.sessions == "per-instrument"
+                 else tuple(x.strip() for x in args.sessions.split("+")))
+        keep = mtf.in_sessions(pd.DatetimeIndex(entries["time"]), names)
+        entries = entries[keep.to_numpy()].reset_index(drop=True)
+
     pos = mtf.to_30m_positions(entries, b30)
     if pos.empty:
         return None, None, b5
@@ -110,6 +121,8 @@ def main():
     ap.add_argument("--trigger-window", type=int, default=6)
     ap.add_argument("--max-bars", type=int, default=20)
     ap.add_argument("--cost-bp", type=float, default=config.BREAKOUT_COST_BP)
+    ap.add_argument("--sessions", default="per-instrument",
+                    help="per-instrument | all | london+newyork | ...")
     ap.add_argument("--kinds", default="breakout,fakeout,retrace")
     args = ap.parse_args()
     kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
@@ -117,6 +130,7 @@ def main():
     print("MULTI-TIMEFRAME CASCADE  1h bias -> 30m setup -> 5m trigger -> 30m exit")
     print(f"  {args.rr:g}:1, stop floor {args.stop_sigma:g} sigma (5m), "
           f"{args.cost_bp:g}bp/side, setups: {','.join(kinds)}")
+    print(f"  sessions: {args.sessions}")
 
     pool = []
     for inst in config.UNIVERSE_INTRADAY:

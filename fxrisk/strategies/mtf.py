@@ -251,3 +251,70 @@ def to_30m_positions(entries: pd.DataFrame, bars_30m: pd.DataFrame) -> pd.DataFr
         rows.append({"bar": j, "side": e.side, "entry": e.entry,
                      "stop": e.stop, "kind": e.kind, "time": e.time})
     return pd.DataFrame(rows)
+
+
+# ============================================================
+# SESSION WINDOWS
+# ============================================================
+#
+# Each session is defined in ITS OWN timezone, not as a fixed UTC
+# offset. London and New York shift by an hour three weeks apart
+# in spring and a week apart in autumn, and Tokyo does not shift
+# at all, so a window written as "13:00-21:00 UTC" is the right
+# window for part of the year and the wrong one for the rest.
+# Converting the timestamp into the session's own clock and
+# taking the local hour is correct on every date by construction.
+#
+# The windows are the cash hours of each centre, not the whole
+# time the market is technically open:
+#
+#     Tokyo      09:00-17:00  Asia/Tokyo
+#     London     08:00-16:30  Europe/London
+#     New York   08:00-16:00  America/New_York
+#
+# A window is a LIQUIDITY claim, not a fitted parameter. Naming
+# which centres an instrument belongs to is a statement about
+# where its order flow lives - yen in Tokyo and New York, gold
+# and the euro in London and New York, the Nasdaq only in New
+# York - and it is the kind of restriction that can be written
+# down before seeing a result. That is the whole reason it is
+# admissible here: nothing else in this module gets to be chosen
+# after the fact either.
+
+SESSION_WINDOWS: dict[str, tuple[str, float, float]] = {
+    "tokyo": ("Asia/Tokyo", 9.0, 17.0),
+    "london": ("Europe/London", 8.0, 16.5),
+    "newyork": ("America/New_York", 8.0, 16.0),
+}
+
+# Which centres each instrument is allowed to trade in.
+INSTRUMENT_SESSIONS: dict[str, tuple[str, ...]] = {
+    "USD/JPY": ("tokyo", "newyork"),
+    "XAU/USD": ("london", "newyork"),
+    "EUR/USD": ("london", "newyork"),
+    "NAS100": ("newyork",),
+}
+
+
+def in_sessions(index: pd.DatetimeIndex, names) -> pd.Series:
+    """
+    True where the timestamp falls inside ANY of the named sessions.
+
+    Union, not intersection: an instrument traded in London and New
+    York is tradeable in either, and the overlap is simply in both.
+    """
+    idx = pd.DatetimeIndex(index)
+    mask = pd.Series(False, index=idx)
+    for n in names:
+        if n not in SESSION_WINDOWS:
+            raise ValueError(f"unknown session {n!r}; "
+                             f"known: {sorted(SESSION_WINDOWS)}")
+        tz, lo, hi = SESSION_WINDOWS[n]
+        local = idx.tz_convert(tz)
+        hour = local.hour + local.minute / 60.0
+        # Weekends are already absent from the bar data, but an
+        # index built by hand may not be, and a Saturday inside
+        # London hours is not a London session.
+        weekday = local.dayofweek < 5
+        mask |= pd.Series((hour >= lo) & (hour < hi) & weekday, index=idx)
+    return mask.rename("in_session")

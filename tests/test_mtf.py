@@ -183,3 +183,71 @@ def test_config_rejects_nonsense():
                {"trigger_window": 0}, {"stop_sigma": 0.0}):
         with pytest.raises(ValueError):
             mtf.MTFConfig(**kw)
+
+
+# ------------------------------------------------------------
+# Session windows
+# ------------------------------------------------------------
+
+def _uk(*stamps):
+    return pd.DatetimeIndex(list(stamps)).tz_localize("Europe/London")
+
+
+def test_sessions_are_defined_in_their_own_clock_not_a_utc_offset():
+    """
+    The bug this is here to catch: hard-coding "New York is UTC-5".
+    For three weeks each spring the UK has moved to BST and New York
+    has not, so 13:00 London is 08:00 ET in one half of March and
+    09:00 ET in the other. A window written as a fixed offset is
+    silently an hour wrong for several weeks a year.
+    """
+    # 2026: UK clocks go forward 29 March, US clocks 8 March.
+    # In between, London is UTC+0 and New York UTC-4, a 4h gap
+    # rather than the usual 5.
+    mid = _uk("2026-03-16 12:30")          # = 08:30 ET, inside NY
+    before = _uk("2026-03-02 12:30")       # = 07:30 ET, NY not open
+    assert bool(mtf.in_sessions(mid, ("newyork",)).iloc[0])
+    assert not bool(mtf.in_sessions(before, ("newyork",)).iloc[0])
+
+
+def test_tokyo_does_not_observe_dst():
+    """Japan has no summer time, so the window never moves in JST."""
+    jan = pd.DatetimeIndex(["2026-01-14 10:00"]).tz_localize("Asia/Tokyo")
+    jul = pd.DatetimeIndex(["2026-07-14 10:00"]).tz_localize("Asia/Tokyo")
+    assert bool(mtf.in_sessions(jan, ("tokyo",)).iloc[0])
+    assert bool(mtf.in_sessions(jul, ("tokyo",)).iloc[0])
+
+
+def test_multiple_sessions_are_a_union_not_an_intersection():
+    """London-only hours must survive a ('london', 'newyork') filter."""
+    early = _uk("2026-01-14 09:00")        # London open, NY shut
+    both = _uk("2026-01-14 14:00")         # the overlap
+    assert bool(mtf.in_sessions(early, ("london", "newyork")).iloc[0])
+    assert bool(mtf.in_sessions(both, ("london", "newyork")).iloc[0])
+    assert not bool(mtf.in_sessions(early, ("newyork",)).iloc[0])
+
+
+def test_weekends_are_never_in_session():
+    sat = _uk("2026-01-17 14:00")
+    assert not mtf.in_sessions(sat, tuple(mtf.SESSION_WINDOWS)).iloc[0]
+
+
+def test_window_is_half_open_at_the_close():
+    """16:00 ET is the New York close, not a tradeable minute."""
+    ny = pd.DatetimeIndex(["2026-01-14 15:59", "2026-01-14 16:00"]
+                          ).tz_localize("America/New_York")
+    out = mtf.in_sessions(ny, ("newyork",))
+    assert bool(out.iloc[0]) and not bool(out.iloc[1])
+
+
+def test_unknown_session_is_an_error_not_a_silent_pass():
+    with pytest.raises(ValueError, match="unknown session"):
+        mtf.in_sessions(_uk("2026-01-14 14:00"), ("frankfurt",))
+
+
+def test_every_instrument_has_a_declared_window():
+    import config
+    for inst in config.UNIVERSE_INTRADAY:
+        assert inst.name in mtf.INSTRUMENT_SESSIONS
+        for s in mtf.INSTRUMENT_SESSIONS[inst.name]:
+            assert s in mtf.SESSION_WINDOWS
