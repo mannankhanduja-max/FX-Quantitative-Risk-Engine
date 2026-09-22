@@ -1,0 +1,16 @@
+cells: 95  (4 instruments)
+
+               cells   long R  short R      gap
+UP months         58  +0.0101  -0.1165  +0.1265
+DOWN months       37  -0.0470  +0.0309  -0.0779
+  UP    gap t = +3.24   (62% of cells positive)
+  DOWN  gap t = -1.61   (38% of cells positive)
+
+corr(month return, long-short gap) = +0.453
+slope +3.182   intercept +0.0113  <- gap at ZERO monthly return
+
+by instrument, DOWN months only
+  EUR/USD   cells=10  long -0.0858  short +0.0212  gap -0.1070
+  NAS100    cells=8   long -0.0035  short +0.1511  gap -0.1546
+  USD/JPY   cells=11  long +0.0368  short -0.0552  gap +0.0920
+  XAU/USD   cells=8   long -0.1571  short +0.0412  gap -0.1983
