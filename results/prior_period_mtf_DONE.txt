@@ -1,0 +1,17 @@
+run: 2026-09-22T23:59:43.531262+00:00
+window: 2021-09-01 10:30:00-04:00 -> 2023-08-31 11:30:00-04:00
+trades: 2614
+PRIMARY: FAIL
+ROBUST:  FAIL
+frozen.setups: ('fakeout', 'retrace')
+frozen.confirm: fvg
+frozen.bias: None
+frozen.instruments: ('EUR/USD', 'NAS100', 'USD/JPY')
+frozen.rr: 8.0
+frozen.stop_sigma: 1.5
+frozen.max_bars_30m: 60
+frozen.setup_lookback: 20
+frozen.trigger_window: 6
+frozen.commission_bp: 0.35
+frozen.sessions: per-instrument
+frozen.blackout: True

@@ -160,10 +160,13 @@ def run_one(inst, tag):
     if pos.empty:
         return None
 
-    ask_iv = iv.replace("5m", "5m") + "_ask" if not tag else f"5m_ask_{tag}"
+    # The fetcher writes the ask cache as "5m_ask_<tag>", not
+    # "<interval>_ask"; pass it explicitly rather than guessing.
+    ask_iv = "5m_ask" if not tag else f"5m_ask_{tag}"
     try:
         cost = spread.real_cost_bp(b30, inst.yahoo, iv,
-                                   commission_bp=FROZEN["commission_bp"]).to_numpy()
+                                   commission_bp=FROZEN["commission_bp"],
+                                   ask_interval=ask_iv).to_numpy()
     except FileNotFoundError:
         sys.exit(f"Missing the ask cache for {inst.name} ({ask_iv}).\n"
                  f"Run fetch_intraday.py with --side ask and the same --tag.")

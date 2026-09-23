@@ -360,7 +360,8 @@ def wide_spread(bars: pd.DataFrame, multiple: float = 3.0,
 
 
 def real_spread(symbol: str, interval: str = "5m",
-                cache_dir: str | None = None) -> pd.Series:
+                cache_dir: str | None = None,
+                ask_interval: str | None = None) -> pd.Series:
     """
     Observed proportional spread per bar: (ask - bid) / mid.
 
@@ -373,7 +374,7 @@ def real_spread(symbol: str, interval: str = "5m",
 
     kw = {} if cache_dir is None else {"cache_dir": cache_dir}
     bid = _in.load_symbol(symbol, interval, **kw)
-    ask = _in.load_symbol(symbol, f"{interval}_ask", **kw)
+    ask = _in.load_symbol(symbol, ask_interval or f"{interval}_ask", **kw)
 
     j = bid[["Close"]].join(ask[["Close"]], how="inner",
                             lsuffix="_b", rsuffix="_a")
@@ -389,7 +390,8 @@ def real_spread(symbol: str, interval: str = "5m",
 
 def real_cost_bp(bars: pd.DataFrame, symbol: str, interval: str = "5m",
                  commission_bp: float = 0.0,
-                 cache_dir: str | None = None) -> pd.Series:
+                 cache_dir: str | None = None,
+                 ask_interval: str | None = None) -> pd.Series:
     """
     Per-bar cost in bp PER SIDE: half the measured spread, plus
     commission.
@@ -404,7 +406,8 @@ def real_cost_bp(bars: pd.DataFrame, symbol: str, interval: str = "5m",
     if commission_bp < 0:
         raise ValueError("commission_bp cannot be negative")
 
-    s = real_spread(symbol, interval, cache_dir=cache_dir) * 10_000.0 / 2.0
+    s = real_spread(symbol, interval, cache_dir=cache_dir,
+                    ask_interval=ask_interval) * 10_000.0 / 2.0
     if bars.index.equals(s.index):
         out = s
     else:
