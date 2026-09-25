@@ -397,17 +397,23 @@ def test_stop_mode_is_validated():
 # ------------------------------------------------------------
 
 def test_session_vwap_resets_at_the_session_roll():
-    """A cumulative VWAP that never resets is a running average of
-    the whole sample, not a session's fair value."""
+    """
+    A cumulative VWAP that never resets is a running average of the
+    whole sample, not a session's fair value.
+
+    The roll is 17:00 New York, so the 17:00 bar is the FIRST bar of
+    the new session, not the last of the old one - which is the part
+    that is easy to get one bar wrong.
+    """
     idx = pd.date_range("2024-01-02 16:00", periods=6, freq="1h",
                         tz="America/New_York")
-    b = pd.DataFrame({"Open": 100.0, "High": 100.0, "Low": 100.0,
-                      "Close": [100.0, 100.0, 200.0, 200.0, 200.0, 200.0],
+    c = np.array([100.0, 200.0, 200.0, 200.0, 200.0, 200.0])
+    b = pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c,
                       "Volume": 1000.0}, index=idx)
     v = mtf.session_vwap(b)
-    # 17:00 starts a new session; the 200s must not be dragged down
-    # by the 100s that preceded the roll.
-    assert v.iloc[-1] == pytest.approx(200.0)
+    assert v.iloc[0] == pytest.approx(100.0)     # old session, alone
+    assert v.iloc[1] == pytest.approx(200.0)     # new session starts here
+    assert v.iloc[-1] == pytest.approx(200.0)    # and the 100 never leaks in
 
 
 def test_session_vwap_refuses_zero_volume():
