@@ -69,7 +69,9 @@ class MTFConfig:
     retrace_max: float = 1.00
     retrace_window: int = 6      # 30m bars allowed for the pullback
     trigger_window: int = 6      # 5m bars allowed to trigger after a setup
-    stop_sigma: float = 1.0      # floor on the stop, in 5m EWMA sigmas
+    stop_sigma: float = 1.0      # floor on the stop, in 5m volatility units
+    stop_mode: str = "sigma"     # "sigma" (EWMA of log returns) or "atr"
+    atr_period: int = 14         # Wilder's period, when stop_mode="atr"
     max_bars_30m: int = 20       # time limit, in 30m bars
     lam: float = 0.94
 
@@ -84,6 +86,10 @@ class MTFConfig:
             raise ValueError("windows must be at least 1")
         if self.stop_sigma <= 0:
             raise ValueError("stop_sigma must be positive")
+        if self.stop_mode not in ("sigma", "atr"):
+            raise ValueError("stop_mode must be 'sigma' or 'atr'")
+        if self.atr_period < 2:
+            raise ValueError("atr_period must be at least 2")
 
 
 def align_to(lower_index: pd.DatetimeIndex, higher: pd.Series) -> pd.Series:
@@ -190,6 +196,57 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
     return pd.DataFrame(rows, columns=["known_at", "side", "level", "kind"])
 
 
+def true_range(bars: pd.DataFrame) -> pd.Series:
+    """
+    Wilder's true range: the greater of this bar's own range and its
+    gap from the previous close, in either direction.
+
+        TR = max(high - low,
+                 |high - prev_close|,
+                 |low  - prev_close|)
+
+    WHY IT IS NOT THE SAME AS THE EWMA SIGMA THIS MODULE USED
+    -----------------------------------------------------------
+    The EWMA sigma is built from CLOSE-TO-CLOSE log returns. It
+    cannot see what happened inside a bar, and it cannot see a gap
+    at all: a bar that opens well away from the previous close and
+    then goes nowhere contributes almost nothing to it.
+
+    A stop is hit by the INTRABAR extreme, not by the close. So a
+    close-to-close measure systematically understates the distance
+    price can travel against a position within one bar, and a stop
+    floored on it is placed too tight - most of all around the
+    session open and the seconds after a release, which is exactly
+    where this rule set trades.
+
+    True range is the standard fix and is what ATR is built from.
+    Whether it actually helps here is a measurement, not an
+    assumption: a wider stop lowers cost in units of risk but also
+    moves the target further away.
+    """
+    high = bars["High"].astype("float64")
+    low = bars["Low"].astype("float64")
+    prev = bars["Close"].astype("float64").shift(1)
+    tr = pd.concat([(high - low),
+                    (high - prev).abs(),
+                    (low - prev).abs()], axis=1).max(axis=1)
+    return tr.rename("true_range")
+
+
+def atr(bars: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Average true range, Wilder's smoothing, SHIFTED so that the
+    value at bar t uses only bars up to t-1.
+
+    The shift is the whole safety property. An ATR that includes
+    the current bar sizes the stop using the very range the stop is
+    about to be tested against.
+    """
+    tr = true_range(bars)
+    out = tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    return out.shift(1).rename("atr")
+
+
 def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                bias_1h: pd.Series | None, cfg: MTFConfig | None = None) -> pd.DataFrame:
     """
@@ -207,8 +264,18 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
     close = bars_5m["Close"].to_numpy(dtype="float64")
     high = bars_5m["High"].to_numpy(dtype="float64")
     low = bars_5m["Low"].to_numpy(dtype="float64")
-    r = np.log(bars_5m["Close"]).diff()
-    sig = np.sqrt(r.pow(2).ewm(alpha=1 - cfg.lam, adjust=False).mean()).shift(1).to_numpy()
+    # The stop floor's unit. "sigma" is the EWMA of close-to-close
+    # log returns and is dimensionless, so it is multiplied by price
+    # below. "atr" is already in price units and is not.
+    if cfg.stop_mode == "atr":
+        vol = atr(bars_5m, cfg.atr_period).to_numpy()
+        vol_is_price = True
+    else:
+        r = np.log(bars_5m["Close"]).diff()
+        vol = np.sqrt(r.pow(2).ewm(alpha=1 - cfg.lam,
+                                   adjust=False).mean()).shift(1).to_numpy()
+        vol_is_price = False
+    sig = vol
 
     # bias_1h=None removes the 1h direction filter entirely - no
     # session VWAP, no 9 EMA. The setup's own side then decides,
@@ -241,7 +308,9 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                 continue
             entry = close[k]
             structural = low[k] if s.side > 0 else high[k]
-            d = max(abs(entry - structural), cfg.stop_sigma * sig[k] * entry)
+            floor = (cfg.stop_sigma * sig[k] if vol_is_price
+                     else cfg.stop_sigma * sig[k] * entry)
+            d = max(abs(entry - structural), floor)
             rows.append({"time": idx[k], "side": s.side, "entry": entry,
                          "stop": entry - s.side * d, "kind": s.kind})
             last_bar = k

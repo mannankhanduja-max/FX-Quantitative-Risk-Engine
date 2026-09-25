@@ -311,3 +311,79 @@ def test_removing_the_bias_does_not_reintroduce_lookahead():
     if n:
         assert np.allclose(base["entry"].to_numpy()[:n],
                            after["entry"].to_numpy()[:n])
+
+
+# ------------------------------------------------------------
+# ATR as the stop basis
+# ------------------------------------------------------------
+
+def test_true_range_sees_a_gap_that_close_to_close_vol_does_not():
+    """
+    The reason ATR exists here. A bar that opens far from the
+    previous close and then barely moves has a tiny close-to-close
+    return and a large true range - and it is the true range a
+    stop has to survive.
+    """
+    idx = pd.date_range("2024-01-02", periods=3, freq="5min",
+                        tz="America/New_York")
+    b = pd.DataFrame({"Open": [100.0, 100.0, 105.0],
+                      "High": [100.2, 100.2, 105.1],
+                      "Low":  [99.8, 99.8, 104.9],
+                      "Close": [100.0, 100.0, 105.0],
+                      "Volume": 1000.0}, index=idx)
+    tr = mtf.true_range(b)
+    assert tr.iloc[1] == pytest.approx(0.4)      # no gap: just the range
+    assert tr.iloc[2] == pytest.approx(5.1)      # gap dominates
+
+
+def test_atr_is_shifted_so_a_bar_cannot_size_its_own_stop():
+    """
+    An ATR including the current bar sizes the stop using the very
+    range the stop is about to be tested against.
+    """
+    b = _frame(300, "5min", seed=20)
+    a = mtf.atr(b, 14)
+    shocked = b.copy()
+    k = shocked.index[-1]
+    shocked.loc[k, "High"] *= 1.20
+    shocked.loc[k, "Low"] *= 0.80
+    a2 = mtf.atr(shocked, 14)
+    assert np.allclose(a.to_numpy(), a2.to_numpy(), equal_nan=True), \
+        "the last bar's own range moved its own ATR"
+
+
+def test_atr_exceeds_close_to_close_sigma_on_real_shaped_data():
+    """
+    True range includes intrabar travel, so ATR should sit ABOVE a
+    close-to-close sigma. If this ever inverts, the two are not
+    measuring what their names claim.
+    """
+    b = _frame(1200, "5min", seed=21)
+    a = mtf.atr(b, 14).median()
+    r = np.log(b["Close"]).diff()
+    s = (np.sqrt(r.pow(2).ewm(alpha=0.06, adjust=False).mean())
+         * b["Close"]).median()
+    assert a > s
+
+
+def test_atr_mode_produces_a_wider_stop_than_the_same_sigma_multiple():
+    b5 = _frame(900, "5min", seed=22)
+    b30 = b5.resample("30min").agg({"Open": "first", "High": "max", "Low": "min",
+                                    "Close": "last", "Volume": "sum"}).dropna()
+    s = mtf.setups_30m(b30)
+    sig = mtf.entries_5m(b5, s, None, mtf.MTFConfig(stop_mode="sigma",
+                                                    stop_sigma=1.0))
+    at = mtf.entries_5m(b5, s, None, mtf.MTFConfig(stop_mode="atr",
+                                                   stop_sigma=1.0))
+    if sig.empty or at.empty:
+        pytest.skip("no entries on this fixture")
+    ds = (sig["entry"] - sig["stop"]).abs().median()
+    da = (at["entry"] - at["stop"]).abs().median()
+    assert da >= ds
+
+
+def test_stop_mode_is_validated():
+    with pytest.raises(ValueError, match="stop_mode"):
+        mtf.MTFConfig(stop_mode="bollinger")
+    with pytest.raises(ValueError, match="atr_period"):
+        mtf.MTFConfig(atr_period=1)
