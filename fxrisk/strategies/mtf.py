@@ -122,6 +122,7 @@ class MTFConfig:
     max_bars_30m: int = 80       # time limit, in 30m bars. Long on purpose:
                                  # see CHOOSING THE REWARD RATIO below.
     lam: float = 0.94
+    vwap_filter: str = "none"    # "none" | "revert" | "trend"
 
     def __post_init__(self) -> None:
         if self.bias_ema < 1:
@@ -134,6 +135,8 @@ class MTFConfig:
             raise ValueError("windows must be at least 1")
         if self.stop_sigma <= 0:
             raise ValueError("stop_sigma must be positive")
+        if self.vwap_filter not in ("none", "revert", "trend"):
+            raise ValueError("vwap_filter must be 'none', 'revert' or 'trend'")
         if self.stop_mode not in ("sigma", "atr"):
             raise ValueError("stop_mode must be 'sigma' or 'atr'")
         if self.atr_period < 2:
@@ -244,6 +247,23 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
     return pd.DataFrame(rows, columns=["known_at", "side", "level", "kind"])
 
 
+def session_vwap(bars: pd.DataFrame) -> pd.Series:
+    """
+    Tick-weighted VWAP, reset at each 17:00 New York session roll.
+
+    Cumulative to and including the current bar, which is legitimate:
+    every term in it is known at that bar's close.
+    """
+    tp = (bars["High"] + bars["Low"] + bars["Close"]) / 3.0
+    vol = pd.to_numeric(bars["Volume"], errors="coerce").fillna(0.0)
+    if (vol <= 0).all():
+        raise ValueError("volume is zero on every bar, so VWAP is undefined")
+    sess = pd.Series(session_id(bars.index).to_numpy(), index=bars.index)
+    num = (tp * vol).groupby(sess).cumsum()
+    den = vol.groupby(sess).cumsum().replace(0, np.nan)
+    return (num / den).rename("vwap")
+
+
 def true_range(bars: pd.DataFrame) -> pd.Series:
     """
     Wilder's true range: the greater of this bar's own range and its
@@ -336,6 +356,25 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
             else align_to(bars_5m.index, bias_1h).to_numpy())
     idx = bars_5m.index
 
+    # VWAP AS A LOCATION FILTER, NOT A TREND FILTER
+    # ----------------------------------------------
+    # The 9-EMA-of-VWAP trend gate was removed from this rule because
+    # it cut two thirds of the trades and the win rate went UP without
+    # it. But that was VWAP used as a DIRECTION signal, and this is a
+    # fade strategy - the direction is already decided by the setup.
+    #
+    # "revert" uses VWAP the way a fade should: as the session's
+    # volume-weighted fair value. A long is only taken when price is
+    # BELOW it and a short only when price is ABOVE it, so the trade
+    # is always toward value rather than away from it. That is a
+    # location condition, like the fair value gap, and it is the use
+    # of VWAP consistent with the only effect this data confirmed -
+    # short-horizon reversion.
+    #
+    # "trend" restores the old behaviour for comparison.
+    vwap = (session_vwap(bars_5m).to_numpy()
+            if cfg.vwap_filter != "none" else None)
+
     rows = []
     last_bar = -1
     for s in setups.sort_values("known_at").itertuples(index=False):
@@ -345,6 +384,18 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                 continue
             if bias is not None and bias[k] != s.side:
                 continue
+            if vwap is not None and np.isfinite(vwap[k]):
+                if cfg.vwap_filter == "revert":
+                    # long only below value, short only above it
+                    if s.side > 0 and close[k] >= vwap[k]:
+                        continue
+                    if s.side < 0 and close[k] <= vwap[k]:
+                        continue
+                elif cfg.vwap_filter == "trend":
+                    if s.side > 0 and close[k] <= vwap[k]:
+                        continue
+                    if s.side < 0 and close[k] >= vwap[k]:
+                        continue
             # THE TRIGGER: this 5m bar closed beyond the PREVIOUS
             # 5m close, in the setup's direction. Nothing else.
             # Deliberately not "beyond the 30m setup level" - the

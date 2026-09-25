@@ -390,3 +390,75 @@ def test_stop_mode_is_validated():
         mtf.MTFConfig(stop_mode="bollinger")
     with pytest.raises(ValueError, match="atr_period"):
         mtf.MTFConfig(atr_period=1)
+
+
+# ------------------------------------------------------------
+# VWAP as a filter
+# ------------------------------------------------------------
+
+def test_session_vwap_resets_at_the_session_roll():
+    """A cumulative VWAP that never resets is a running average of
+    the whole sample, not a session's fair value."""
+    idx = pd.date_range("2024-01-02 16:00", periods=6, freq="1h",
+                        tz="America/New_York")
+    b = pd.DataFrame({"Open": 100.0, "High": 100.0, "Low": 100.0,
+                      "Close": [100.0, 100.0, 200.0, 200.0, 200.0, 200.0],
+                      "Volume": 1000.0}, index=idx)
+    v = mtf.session_vwap(b)
+    # 17:00 starts a new session; the 200s must not be dragged down
+    # by the 100s that preceded the roll.
+    assert v.iloc[-1] == pytest.approx(200.0)
+
+
+def test_session_vwap_refuses_zero_volume():
+    b = _frame(50, "1h", seed=30)
+    b["Volume"] = 0.0
+    with pytest.raises(ValueError, match="volume is zero"):
+        mtf.session_vwap(b)
+
+
+def test_revert_filter_only_buys_below_value_and_sells_above():
+    b5 = _frame(900, "5min", seed=31)
+    b30 = b5.resample("30min").agg({"Open": "first", "High": "max", "Low": "min",
+                                    "Close": "last", "Volume": "sum"}).dropna()
+    s = mtf.setups_30m(b30)
+    e = mtf.entries_5m(b5, s, None, mtf.MTFConfig(vwap_filter="revert",
+                                                  stop_mode="sigma"))
+    if e.empty:
+        pytest.skip("no entries on this fixture")
+    v = mtf.session_vwap(b5)
+    for row in e.itertuples(index=False):
+        if row.side > 0:
+            assert row.entry < v.loc[row.time]
+        else:
+            assert row.entry > v.loc[row.time]
+
+
+def test_trend_filter_is_the_exact_opposite_of_revert():
+    b5 = _frame(900, "5min", seed=32)
+    b30 = b5.resample("30min").agg({"Open": "first", "High": "max", "Low": "min",
+                                    "Close": "last", "Volume": "sum"}).dropna()
+    s = mtf.setups_30m(b30)
+    kw = dict(stop_mode="sigma")
+    rev = mtf.entries_5m(b5, s, None, mtf.MTFConfig(vwap_filter="revert", **kw))
+    tre = mtf.entries_5m(b5, s, None, mtf.MTFConfig(vwap_filter="trend", **kw))
+    if rev.empty or tre.empty:
+        pytest.skip("no entries on this fixture")
+    assert set(rev["time"]).isdisjoint(set(tre["time"]))
+
+
+def test_either_vwap_filter_can_only_remove_entries():
+    b5 = _frame(900, "5min", seed=33)
+    b30 = b5.resample("30min").agg({"Open": "first", "High": "max", "Low": "min",
+                                    "Close": "last", "Volume": "sum"}).dropna()
+    s = mtf.setups_30m(b30)
+    base = mtf.entries_5m(b5, s, None, mtf.MTFConfig(stop_mode="sigma"))
+    for mode in ("revert", "trend"):
+        f = mtf.entries_5m(b5, s, None,
+                           mtf.MTFConfig(vwap_filter=mode, stop_mode="sigma"))
+        assert len(f) <= len(base)
+
+
+def test_vwap_filter_is_validated():
+    with pytest.raises(ValueError, match="vwap_filter"):
+        mtf.MTFConfig(vwap_filter="anchored")

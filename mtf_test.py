@@ -43,6 +43,7 @@ def run_one(inst, args, kinds):
 
     cfg = mtf.MTFConfig(stop_sigma=args.stop_sigma,
                         stop_mode=args.stop_mode,
+                        vwap_filter=args.vwap_filter,
                         atr_period=args.atr_period,
                         setup_lookback=args.lookback,
                         trigger_window=args.trigger_window,
@@ -158,6 +159,8 @@ def main():
     ap.add_argument("--bias", action="store_true", default=True)
     ap.add_argument("--no-bias", dest="bias", action="store_false",
                     help="drop the 1h session-VWAP / 9-EMA direction filter")
+    ap.add_argument("--vwap-filter", default="none",
+                    choices=("none","revert","trend"))
     ap.add_argument("--stop-mode", default="atr", choices=("sigma","atr"))
     ap.add_argument("--atr-period", type=int, default=14)
     ap.add_argument("--confirm", default="fvg",
