@@ -271,7 +271,10 @@ def test_the_5m_trigger_is_the_previous_5m_close_and_nothing_else():
     bias = pd.Series(1.0, index=pd.date_range(
         "2024-01-02 07:00", periods=4, freq="1h", tz="America/New_York"))
 
-    e = mtf.entries_5m(b5, setups, bias)
+    # sigma basis explicitly: this fixture is 8 bars, too short for
+    # ATR(14), and the test is about the trigger, not the stop.
+    e = mtf.entries_5m(b5, setups, bias,
+                       mtf.MTFConfig(stop_mode="sigma", stop_sigma=1.0))
     assert len(e) == 1
     k = list(idx).index(e.iloc[0]["time"])
     assert c[k] > c[k - 1], "triggered on a bar that closed lower"

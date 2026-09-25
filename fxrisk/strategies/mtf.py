@@ -43,6 +43,53 @@ the benchmark measures: a tighter stop lowers the dollar loss per
 trade AND raises the hurdle, so the two effects fight, and only the
 data settles it.
 
+CHOOSING THE REWARD RATIO, AND THE TIME LIMIT WITH IT
+------------------------------------------------------
+These two are one decision, not two, and getting that wrong
+produced the worst error in this study.
+
+An 8:1 target with a 60-bar limit looked like the best
+configuration measured here. It was not. At that geometry most
+winners never reach the target inside the limit, so they close at
+market - and those closes averaged +2.8 to +3.6R while the trades
+that actually RESOLVED AT A BARRIER lost money. The headline mean
+was roughly sixty lucky time-outs. The Black-Scholes benchmark
+describes barrier resolutions only, so comparing it to a mean that
+time exits dominate compares two different things.
+
+So the reward ratio is chosen on the BARRIER population, with the
+time limit set long enough that time exits are negligible and the
+benchmark comparison is therefore valid. Measured across the four
+instruments, ATR(14) stop, real spread plus 0.35bp commission:
+
+    rr   bars    time%    win      BM       z     barrier R
+   1.5     80     0.1%  39.94%  40.00%   -0.11     -0.2117
+   2.0     80     0.1%  35.53%  33.33%   +4.52     -0.1448
+   2.5     80     0.1%  31.80%  28.57%   +6.67     -0.0965
+   3.0     80     0.1%  28.19%  25.00%   +6.68     -0.0811
+   4.0     80     0.3%  22.89%  20.00%   +6.19     -0.0645
+   5.0     80     0.6%  18.79%  16.67%   +4.67     -0.0816
+   6.0     80     0.7%  16.58%  14.29%   +5.19     -0.0472
+
+3:1 with an 80-bar limit is the default because it sits at the
+peak of the directional evidence (z +6.68, tied with 2.5:1 and the
+strongest in this study) with time exits at 0.1%, so nothing in
+the number is an artefact of where the limit happened to fall.
+Below 2:1 the edge disappears entirely - at 1.5:1 the realised win
+rate is BELOW the benchmark. Above 4:1 the z falls and time exits
+start to contaminate again.
+
+6:1 loses slightly less money per trade (-0.047 against -0.081),
+and is not the default: it buys that on weaker evidence and a
+thinner barrier population, which is the same trade that made 8:1
+look good. When nothing is profitable, the configuration worth
+keeping is the one whose measurement is most trustworthy, not the
+one that loses least.
+
+WHAT IT WOULD TAKE. At 3:1 the gross edge is +0.128R against a
+cost of 0.209R. Breakeven needs the round trip down to 62% of what
+it currently is. That is the whole gap, stated as one number.
+
 BACKTEST-ONLY. Not a recommendation to trade.
 """
 
@@ -70,9 +117,10 @@ class MTFConfig:
     retrace_window: int = 6      # 30m bars allowed for the pullback
     trigger_window: int = 6      # 5m bars allowed to trigger after a setup
     stop_sigma: float = 1.0      # floor on the stop, in 5m volatility units
-    stop_mode: str = "sigma"     # "sigma" (EWMA of log returns) or "atr"
+    stop_mode: str = "atr"       # "atr" (true range) or "sigma" (close-to-close)
     atr_period: int = 14         # Wilder's period, when stop_mode="atr"
-    max_bars_30m: int = 20       # time limit, in 30m bars
+    max_bars_30m: int = 80       # time limit, in 30m bars. Long on purpose:
+                                 # see CHOOSING THE REWARD RATIO below.
     lam: float = 0.94
 
     def __post_init__(self) -> None:

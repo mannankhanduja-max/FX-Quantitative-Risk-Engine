@@ -139,11 +139,11 @@ def report(name, trades, rr):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rr", type=float, default=2.0)
+    ap.add_argument("--rr", type=float, default=3.0)
     ap.add_argument("--stop-sigma", type=float, default=1.0)
     ap.add_argument("--lookback", type=int, default=20)
     ap.add_argument("--trigger-window", type=int, default=6)
-    ap.add_argument("--max-bars", type=int, default=20)
+    ap.add_argument("--max-bars", type=int, default=80)
     ap.add_argument("--cost-bp", type=float, default=config.BREAKOUT_COST_BP)
     ap.add_argument("--sessions", default="per-instrument",
                     help="per-instrument | all | london+newyork | ...")
@@ -158,7 +158,7 @@ def main():
     ap.add_argument("--bias", action="store_true", default=True)
     ap.add_argument("--no-bias", dest="bias", action="store_false",
                     help="drop the 1h session-VWAP / 9-EMA direction filter")
-    ap.add_argument("--stop-mode", default="sigma", choices=("sigma","atr"))
+    ap.add_argument("--stop-mode", default="atr", choices=("sigma","atr"))
     ap.add_argument("--atr-period", type=int, default=14)
     ap.add_argument("--confirm", default="fvg",
                     choices=("none", "fvg", "ob", "both"),
