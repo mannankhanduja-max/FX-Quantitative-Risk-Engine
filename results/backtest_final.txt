@@ -1,0 +1,51 @@
+MULTI-TIMEFRAME CASCADE  1h bias -> 30m setup -> 5m trigger -> 30m exit
+  3:1, stop floor 1 sigma (5m), 1bp/side, setups: breakout,fakeout,retrace
+  stop basis: atr (14)   retrace confirmation: fvg
+  1h bias filter: OFF (no VWAP, no 9 EMA)
+  sessions: per-instrument   blackout: True   cost: real +0.35bp commission
+
+EUR/USD
+  trades           2213   (1109/yr)   dropped overlapping 820
+  win rate         27.47%   barrier-only 27.28%   time exits 0.3%
+  BS benchmark     25.00%   realised 27.28%   z +2.47   (n=2207, 6 time exits excluded)
+  cost hurdle      31.10%   gap -3.82%
+  mean net R       -0.1510   t -3.99   Sharpe -2.82   maxDD -348.7R
+
+XAU/USD
+  trades           1885   (944/yr)   dropped overlapping 747
+  win rate         28.33%   barrier-only 28.33%   time exits 0.0%
+  BS benchmark     25.00%   realised 28.33%   z +3.34   (n=1885, 0 time exits excluded)
+  cost hurdle      30.09%   gap -1.76%
+  mean net R       -0.0705   t -1.70   Sharpe -1.20   maxDD -149.0R
+
+NAS100
+  trades           1603   (804/yr)   dropped overlapping 653
+  win rate         29.26%   barrier-only 29.23%   time exits 0.1%
+  BS benchmark     25.00%   realised 29.23%   z +3.91   (n=1601, 2 time exits excluded)
+  cost hurdle      27.83%   gap +1.40%
+  mean net R       +0.0560   t +1.23   Sharpe +0.87   maxDD -58.8R
+
+USD/JPY
+  trades           2519   (1264/yr)   dropped overlapping 993
+  win rate         28.30%   barrier-only 28.23%   time exits 0.2%
+  BS benchmark     25.00%   realised 28.23%   z +3.74   (n=2515, 4 time exits excluded)
+  cost hurdle      31.04%   gap -2.81%
+  mean net R       -0.1119   t -3.11   Sharpe -2.20   maxDD -346.0R
+
+==============================================================
+
+POOLED
+  trades           8220   (4118/yr)   dropped overlapping 3213
+  win rate         28.27%   barrier-only 28.19%   time exits 0.1%
+  BS benchmark     25.00%   realised 28.19%   z +6.68   (n=8208, 12 time exits excluded)
+  cost hurdle      30.21%   gap -2.02%
+  mean net R       -0.0802   t -4.03   Sharpe -2.85   maxDD -695.0R
+
+  by setup type
+    breakout   n=4960   win 27.88%   BS 25.00%  z +4.58   meanR -0.0980
+    fakeout    n=2249   win 28.37%   BS 25.00%  z +3.52   meanR -0.0721
+    retrace    n=1011   win 29.97%   BS 25.00%  z +3.65   meanR -0.0110
+
+  by half (split-half stability)
+    first   n=4110   win 28.98%   meanR -0.0494   2024-09-23 -> 2025-09-15
+    second  n=4110   win 27.57%   meanR -0.1110   2025-09-15 -> 2026-09-22

@@ -153,12 +153,18 @@ def main():
     ap.add_argument("--cost", default="real",
                     choices=("real", "activity", "flat"),
                     help="real = measured ask-bid; the others are proxies")
-    ap.add_argument("--commission-bp", type=float, default=0.0,
+    # 0.35bp per side is an ordinary retail raw/ECN commission. The
+    # headline figure should be what an account actually pays, not a
+    # frictionless number that needs a footnote.
+    ap.add_argument("--commission-bp", type=float, default=0.35,
                     help="per side, on top of the measured spread")
     ap.add_argument("--cost-power", type=float, default=0.5)
-    ap.add_argument("--bias", action="store_true", default=True)
-    ap.add_argument("--no-bias", dest="bias", action="store_false",
-                    help="drop the 1h session-VWAP / 9-EMA direction filter")
+    # The 1h session-VWAP / 9-EMA direction filter is OFF by default.
+    # Measured twice on different geometries: it removes two thirds of
+    # the trades and the win rate goes UP without it. --bias restores
+    # it for comparison.
+    ap.add_argument("--bias", action="store_true", default=False)
+    ap.add_argument("--no-bias", dest="bias", action="store_false")
     ap.add_argument("--vwap-filter", default="none",
                     choices=("none","revert","trend"))
     ap.add_argument("--stop-mode", default="atr", choices=("sigma","atr"))
