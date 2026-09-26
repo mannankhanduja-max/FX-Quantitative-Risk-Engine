@@ -126,6 +126,14 @@ def main():
     all_t = pd.concat(parts, ignore_index=True).sort_values("entry_time")
     all_t["entry_time"] = pd.to_datetime(all_t["entry_time"], utc=True,
                                          format="mixed")
+    # Adjacent caches touch at their shared boundary day (5m_2021 ends
+    # 2023-08-31, 5m_2023 begins it), so the same setup can be emitted
+    # twice. Concatenating without this double-counts those trades and
+    # quietly inflates every fold that spans a seam.
+    before = len(all_t)
+    all_t = all_t.drop_duplicates(subset=["config", "instrument",
+                                          "entry_time"], keep="first")
+    dropped = before - len(all_t)
 
     lo, hi = all_t["entry_time"].min(), all_t["entry_time"].max()
     folds = wf.make_folds(lo.normalize(), hi.normalize(),
@@ -136,7 +144,10 @@ def main():
     print(f"  data   {lo.date()} -> {hi.date()}   "
           f"{all_t['config'].nunique()} configurations")
     print(f"  folds  {len(folds)} x ({args.train}m train / {args.test}m test)")
-    print(f"  cost   measured spread + {args.commission_bp:g}bp per side\n")
+    print(f"  cost   measured spread + {args.commission_bp:g}bp per side")
+    if dropped:
+        print(f"  seams  {dropped} duplicate trades dropped at cache boundaries")
+    print()
     if not folds:
         raise SystemExit("not enough history for even one fold")
 
