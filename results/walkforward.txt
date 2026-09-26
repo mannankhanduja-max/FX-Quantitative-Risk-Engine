@@ -1,0 +1,21 @@
+WALK-FORWARD, 1h/4h/1d cascade
+  data   2021-09-07 -> 2026-09-22   18 configurations
+  folds  7 x (18m train / 6m test)
+  cost   measured spread + 0.35bp per side
+
+  per fold
+    test window               picked                    n    net R
+    2023-03-07 -> 2023-09-07  rr4_atr1.5_fades        124  -0.0836
+    2023-09-07 -> 2024-03-07  rr4_atr1.5_fades          0     +nan
+    2024-03-07 -> 2024-09-07  rr4_atr0.75_fades         0     +nan
+    2024-09-07 -> 2025-03-07  rr4_atr0.75_fades       117  -0.0519
+    2025-03-07 -> 2025-09-07  rr4_atr0.75_all         241  -0.0102
+    2025-09-07 -> 2026-03-07  rr4_atr0.75_all         287  +0.0414
+    2026-03-07 -> 2026-09-07  rr3_atr1_all            214  +0.1948
+
+  OUT OF SAMPLE, 983 trades
+    win rate            23.50%
+    mean net R          +0.0353   t +0.55
+    selection stability 29%   (4 distinct configs chosen)
+    fixed rr3_atr1_all: +0.0399
+    selection edge      -0.0046   <- does optimising help at all?
