@@ -1,0 +1,15 @@
+THE SAME TRADES, RE-SCORED AT FOUR MONITORING RESOLUTIONS
+  1h/4h/1d cascade, 3:1, ATR(14) x1.0, measured spread + 0.35bp/side
+  entries, stops and targets identical in every row - only the
+  resolution the two barriers are watched at changes
+  null-test bias on no-information data: 4h +1.93pp, 1h -0.78pp, 15m -2.41pp, 5m -3.77pp
+
+     walk      n  time%     win      BM   excess       z   adj z    gross      net      t
+       4h   2728   0.3%  28.24%  25.01%   +3.23%   +3.89   +1.56  +0.1306  +0.0649  +1.88
+       1h   2637   0.3%  25.98%  25.01%   +0.97%   +1.15   +2.08  +0.0415  -0.0244  -0.71
+    15min   2732   0.3%  23.52%  25.01%   -1.48%   -1.79   +1.12  -0.0576  -0.1238  -3.82
+     5min   2800   0.2%  21.34%  25.01%   -3.67%   -4.48   +0.13  -0.1447  -0.2109  -6.82
+
+  'adj z' rescales z by how much of the excess survives after
+  subtracting what a driftless random walk produces at the same
+  frame. It is an estimate, not a test statistic.

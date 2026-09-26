@@ -1,0 +1,30 @@
+NO-INFORMATION PATHS THROUGH THE SAME BARRIER TEST
+  3:1, ATR(14) x1.0, 1h entries, no cost
+  20 seeds x 60000 5m bars per cell, ZERO log drift by construction
+  bar limit scaled with the frame, so every row allows the same holding time
+  reference: the real 4h-walked result was excess +3.59%, z +2.69
+
+  regime       walk seeds  trades  clust   actual   model   excess  mean z  pooled z  vs real
+  constant       4h    20    3415  0.001   26.93%  25.00%   +1.93%   +0.58     +2.62     54%
+  constant       1h    20    3225  0.001   24.22%  25.00%   -0.78%   -0.23     -1.07    -22%
+  constant    15min    20    3277  0.001   22.59%  25.00%   -2.41%   -0.71     -3.20    -67%
+  constant     5min    20    3405  0.001   21.23%  25.00%   -3.77%   -1.14     -5.16   -105%
+
+  garch          4h    20    3270  0.201   27.33%  25.00%   +2.32%   +0.69     +3.13     65%
+  garch          1h    20    3102  0.201   24.82%  25.00%   -0.18%   -0.05     -0.19     -5%
+  garch       15min    20    3203  0.201   22.62%  25.00%   -2.38%   -0.69     -3.09    -66%
+  garch        5min    20    3350  0.201   20.91%  25.00%   -4.09%   -1.22     -5.45   -114%
+
+PER SEED z, 4h walk (the frame every real result used)
+  regime         0     1     2     3     4     5     6     7     8     9    10    11    12    13    14    15    16    17    18    19
+  constant    +1.4  +0.0  +2.2  -1.2  +0.9  +1.7  +0.8  -0.4  +1.1  -0.8  +0.5  -0.3  +0.6  +0.5  +1.4  -1.0  +1.5  +0.3  +0.9  +1.6
+  garch       +1.3  -0.0  +1.2  +0.1  +1.3  +1.7  -0.5  -0.1  +1.2  +1.3  +0.5  +0.7  +1.8  -0.9  +1.3  +0.3  +0.3  +0.9  +0.9  +0.6
+
+VERDICT
+  Clustering is NOT the mechanism: constant +1.93% vs garch +2.32% at 4h.
+  Monitoring resolution IS: +1.93% at a 4h walk against -0.78% at 1h,
+  on data containing nothing.
+
+  A driftless random walk reproduces 54% of the real excess (+3.59%)
+  with no edge present. The benchmark is disqualified for any result walked
+  at a frame coarser than its own entries.
