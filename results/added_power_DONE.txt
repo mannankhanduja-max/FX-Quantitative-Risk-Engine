@@ -1,0 +1,3 @@
+ran once on 2026-09-27T01:44:25.042794+00:00
+criteria: docs/PREREG_added_power.md
+result: results/added_power.txt
