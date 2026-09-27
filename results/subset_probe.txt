@@ -1,0 +1,44 @@
+ALL 20 THREE-INSTRUMENT SUBSETS, ranked by corrected excess
+  1h monitoring frame, 3:1, measured spread + 0.35bp/side
+  H0 for every t is the null-path bias -0.78%
+  EXPLORATORY. No subset here was chosen before the data was seen.
+
+  cost_R per instrument, measured, no outcomes involved:
+    NAS100 0.042  XAU/USD 0.067  USD/JPY 0.072  EUR/USD 0.094  GBP/JPY 0.115  AUD/NZD 0.295
+    three cheapest: NAS100, XAU/USD, USD/JPY
+
+    #  subset                                 n  corrected      t    net R      t  cost_R
+    1  XAU/USD + NAS100 + GBP/JPY          1957     +2.69%  +2.49  -0.0190  -0.48   0.075
+    2  XAU/USD + NAS100 + USD/JPY          1951     +2.52%  +2.25  +0.0100  +0.25   0.060  <- requested  <- cheapest by cost_R
+    3  EUR/USD + XAU/USD + NAS100          1892     +2.28%  +2.13  -0.0251  -0.62   0.068
+    4  XAU/USD + USD/JPY + GBP/JPY         2148     +1.87%  +1.87  -0.0368  -0.97   0.085
+    5  NAS100 + USD/JPY + GBP/JPY          2050     +1.77%  +1.66  -0.0318  -0.82   0.076
+    6  EUR/USD + XAU/USD + GBP/JPY         2089     +1.63%  +1.72  -0.0699  -1.84   0.092
+    7  XAU/USD + NAS100 + AUD/NZD          1721     +1.62%  +1.42  -0.0745  -1.75   0.134
+    8  EUR/USD + NAS100 + GBP/JPY          1991     +1.54%  +1.51  -0.0664  -1.71   0.084
+    9  EUR/USD + XAU/USD + USD/JPY         2083     +1.45%  +1.47  -0.0430  -1.12   0.078
+   10  EUR/USD + NAS100 + USD/JPY          1985     +1.36%  +1.28  -0.0381  -0.97   0.069
+   11  XAU/USD + GBP/JPY + AUD/NZD         1918     +0.97%  +0.95  -0.1183  -2.96   0.159
+   12  NAS100 + GBP/JPY + AUD/NZD          1820     +0.88%  +0.81  -0.1170  -2.86   0.150
+   13  XAU/USD + USD/JPY + AUD/NZD         1912     +0.79%  +0.75  -0.0890  -2.22   0.145
+   14  EUR/USD + USD/JPY + GBP/JPY         2182     +0.71%  +0.77  -0.0798  -2.16   0.094
+   15  NAS100 + USD/JPY + AUD/NZD          1814     +0.70%  +0.62  -0.0862  -2.09   0.136
+   16  EUR/USD + XAU/USD + AUD/NZD         1853     +0.56%  +0.55  -0.1280  -3.17   0.152
+   17  EUR/USD + NAS100 + AUD/NZD          1755     +0.46%  +0.43  -0.1272  -3.08   0.143
+   18  USD/JPY + GBP/JPY + AUD/NZD         2011     +0.05%  +0.05  -0.1268  -3.27   0.161
+   19  EUR/USD + GBP/JPY + AUD/NZD         1952     -0.18%  -0.20  -0.1649  -4.25   0.168
+   20  EUR/USD + USD/JPY + AUD/NZD         1946     -0.36%  -0.37  -0.1363  -3.49   0.154
+
+READING IT
+  The requested subset ranks 2 of 20 on corrected excess.
+  90% of all 20 subsets show a positive corrected excess;
+  15% clear t > 2, and 5% show positive net R.
+  Spread across subsets: corrected excess -0.36% to +2.69%, net R -0.1649 to +0.0100.
+  That range is what subset choice alone can manufacture from one rule
+  on one dataset. Any single subset must be read against it.
+
+  The requested three ARE the three cheapest by measured cost_R, which is
+  an ex-ante property. So the net R figure for this subset is admissible as
+  'the rule on the only instruments cheap enough to carry it'. The corrected
+  excess is NOT, because these are also the three that scored best, and cost
+  does not move barriers - the win rate is identical with friction off.
