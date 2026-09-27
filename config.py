@@ -345,6 +345,17 @@ UNIVERSE_INTRADAY = [
     IntradayInstrument("XAU/USD", "XAU/USD",  be_bp=4.2, kind="metal"),
     IntradayInstrument("NAS100",  "E_NQ-100", be_bp=5.0, kind="index"),
     IntradayInstrument("USD/JPY", "USD/JPY",  be_bp=6.7),
+    # Added 2026-09 to buy statistical power at the 1h monitoring
+    # frame, not because either looked promising - nothing about them
+    # has been measured yet. GBP/JPY runs roughly twice EUR/USD's
+    # volatility on a spread that does not scale with it, which moves
+    # 2*spread/stop the right way. AUD/NZD is here for a different
+    # reason: it is the only pair in this universe with no USD leg, so
+    # it is the only one whose errors are close to independent of the
+    # others. be_bp is a placeholder until the ask side is fetched and
+    # the spread is measured, exactly as it was for the first four.
+    IntradayInstrument("GBP/JPY", "GBP/JPY",  be_bp=12.0),
+    IntradayInstrument("AUD/NZD", "AUD/NZD",  be_bp=14.0),
 ]
 
 # ============================================================

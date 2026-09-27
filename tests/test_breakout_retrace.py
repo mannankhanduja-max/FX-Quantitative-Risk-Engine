@@ -348,21 +348,37 @@ def test_the_intraday_universe_is_instruments_not_proxies():
     import config as cfg
     ids = {i.name: i.dukascopy for i in cfg.UNIVERSE_INTRADAY}
     assert ids == {"EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD",
-                   "NAS100": "E_NQ-100", "USD/JPY": "USD/JPY"}
+                   "NAS100": "E_NQ-100", "USD/JPY": "USD/JPY",
+                   "GBP/JPY": "GBP/JPY", "AUD/NZD": "AUD/NZD"}
 
 
 def test_every_intraday_instrument_has_a_sane_breakeven_scale():
     """
-    The four conversions in config are the most fragile numbers in
-    the project - a pip is not a unit that survives four quote
-    conventions. They should all land in single-digit basis
-    points; anything outside that means an arithmetic slip.
+    These conversions are the most fragile numbers in the project - a
+    pip is not a unit that survives six quote conventions. They should
+    all land in low double-digit basis points at worst; anything
+    outside that means an arithmetic slip.
     """
     import config as cfg
-    assert len(cfg.UNIVERSE_INTRADAY) == 4
     for inst in cfg.UNIVERSE_INTRADAY:
         assert 1.0 < inst.be_bp < 20.0, inst.name
         assert inst.dukascopy
+
+
+def test_every_intraday_instrument_has_session_windows():
+    """
+    Adding an instrument to the universe without giving it sessions
+    raises KeyError deep inside a runner, after the data has been
+    loaded and resampled. The count is deliberately not asserted here
+    - this test is about the mapping being complete, whatever its size.
+    """
+    import config as cfg
+    from fxrisk.strategies import mtf
+    for inst in cfg.UNIVERSE_INTRADAY:
+        names = mtf.INSTRUMENT_SESSIONS.get(inst.name)
+        assert names, f"{inst.name} has no session windows"
+        for n in names:
+            assert n in mtf.SESSION_WINDOWS, f"{inst.name} -> unknown {n!r}"
 
 
 def test_overlapping_entries_are_dropped_not_stacked():

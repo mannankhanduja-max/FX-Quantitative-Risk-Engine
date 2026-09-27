@@ -480,6 +480,12 @@ SESSION_WINDOWS: dict[str, tuple[str, float, float]] = {
     "tokyo": ("Asia/Tokyo", 9.0, 17.0),
     "london": ("Europe/London", 8.0, 16.5),
     "newyork": ("America/New_York", 8.0, 16.0),
+    # Sydney is where AUD and NZD actually price. It is added as its
+    # own window rather than folding AUD/NZD into Tokyo, because it
+    # opens two hours earlier and - unlike Tokyo - observes DST, on
+    # the southern hemisphere's schedule. Writing it as a Tokyo offset
+    # would be wrong for most of the year in both directions.
+    "sydney": ("Australia/Sydney", 8.0, 17.0),
 }
 
 # Which centres each instrument is allowed to trade in.
@@ -488,6 +494,9 @@ INSTRUMENT_SESSIONS: dict[str, tuple[str, ...]] = {
     "XAU/USD": ("london", "newyork"),
     "EUR/USD": ("london", "newyork"),
     "NAS100": ("newyork",),
+    # Both legs' home centres, same liquidity claim as the others.
+    "GBP/JPY": ("tokyo", "london"),
+    "AUD/NZD": ("sydney", "tokyo"),
 }
 
 
