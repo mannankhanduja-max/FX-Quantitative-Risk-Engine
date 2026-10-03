@@ -686,6 +686,12 @@ python breakout_test.py --no-trend       # is the VWAP filter earning its place?
 python breakout_test.py --sweep          # parameter neighbourhood
 ```
 
+The same rule, as a TradingView indicator that marks a confirmed
+entry with a BUY/SELL label on a live chart, is in
+[`tradingview/breakout_retrace.pine`](tradingview/breakout_retrace.pine)
+— parameter for parameter, including the breakeven arming and the
+pessimistic same-bar tie-break. It carries the same disclaimer.
+
 ### The data source is Dukascopy, and that is the whole reason this works
 
 Yahoo cannot support this strategy, for three separate reasons,

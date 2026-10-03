@@ -1,0 +1,327 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Breakout / Retracement (FX-Quantitative-Risk-Engine)", overlay = true, max_lines_count = 20, max_labels_count = 300)
+
+// =====================================================================
+// A line-by-line port of fxrisk/strategies/breakout_retrace.py and the
+// exit walk in fxrisk/risk/barriers.py (function walk_explicit), from
+//
+//     https://github.com/mannankhanduja-max/FX-Quantitative-Risk-Engine
+//
+// THE RULE, IN ORDER (identical to the Python docstring)
+// ---------------------------------------------------------------------
+//   1  TREND      the 9-period EMA of the session VWAP is above the
+//                 VWAP (long bias) or below it (short bias)
+//   2  BREAKOUT   a bar CLOSES beyond the highest high (or lowest low)
+//                 of the previous `lookback` bars, in the direction
+//                 of the bias
+//   3  RETRACE    within `retraceMaxBars`, price pulls back between
+//                 `minFraction` and `maxFraction` of the breakout
+//                 impulse, measured back toward the broken level
+//   4  CONFIRM    the first bar that closes back beyond the breakout
+//                 bar's own extreme, in the original direction. This
+//                 is the bar this script marks BUY / SELL on.
+//   5  BRACKET    stop at the retracement extreme (floored at
+//                 `stopMinSigma` EWMA sigmas), target at `rr` times
+//                 that distance, stop moved to breakeven once price
+//                 has closed `beBp` basis points in favour.
+//
+// WHAT THE PYTHON BACKTEST FOUND, ON THIS EXACT RULE
+// ---------------------------------------------------------------------
+// Dukascopy 15m bars, four instruments (EUR/USD, XAU/USD, NAS100,
+// USD/JPY), Sep 2024 - Sep 2026:
+//
+//     1-sigma stop     23.0% barrier win rate vs 42.2% hurdle, t = -5.02
+//     4-sigma stop      all cost reduction, no edge, t = -0.50
+//     zero cost          no gross edge either direction, t = +0.81
+//     risk gates, held out   -0.352 mean R, WORSE than ungated
+//
+// A related shallow-retracement variant that looked promising in
+// sample (t = +1.77 before costs) was pre-registered and run on an
+// unseen 2022-2024 period: it did not replicate (t = -1.37 with
+// costs). See README.md section 5a of the repository above for the
+// full writeup and the one-shot test.
+//
+// This script reproduces the RULE faithfully so its signals can be
+// inspected on a live chart. It does not change what the backtest
+// found. BACKTEST-ONLY. NOT A RECOMMENDATION TO TRADE.
+//
+// TWO DELIBERATE DIFFERENCES FROM THE RESEARCH SCRIPT
+// ---------------------------------------------------------------------
+// find_setups() is a vectorised scan over the whole series: it can
+// examine a potential new breakout on literally every bar, even one
+// where a previous retracement is still being watched, and only
+// walk_explicit() later drops ENTRIES that overlap a still-open trade
+// (reporting the count). A chart indicator advances one bar at a time
+// and cannot retroactively undo an earlier signal, so this script
+// instead keeps at most ONE setup active at a time - watching for a
+// retracement, or in a trade - and only looks for a new breakout once
+// the previous one has fully resolved (filled and exited, or timed
+// out / failed). This means the script can miss a fresh breakout that
+// forms while an older retracement is still being watched (up to
+// `retraceMaxBars` bars); it will never take two overlapping trades.
+//
+// Separately: walk_explicit()'s overlap rule (`next_free = i + held`)
+// allows a new entry on the EXACT bar a previous trade exits. This
+// script requires one full bar to pass after an exit before it will
+// look for the next breakout, which is the natural reading for code
+// that runs forward in time rather than over a pre-computed array.
+// =====================================================================
+
+// ---- inputs ---------------------------------------------------------
+grpRule = "Entry rule"
+lookback        = input.int(20,   "Breakout lookback (bars)",            minval = 2,  group = grpRule)
+emaSpan         = input.int(9,    "EMA span on session VWAP",            minval = 1,  group = grpRule)
+retraceMaxBars  = input.int(12,   "Retrace window (bars)",               minval = 1,  group = grpRule)
+minFraction     = input.float(0.33, "Retrace min fraction of impulse",   minval = 0.01, maxval = 0.99, step = 0.01, group = grpRule)
+maxFraction     = input.float(1.00, "Retrace max fraction of impulse",   minval = 0.01, maxval = 2.00, step = 0.01, group = grpRule)
+useTrendFilter  = input.bool(true, "Require VWAP/EMA trend filter",                   group = grpRule)
+ewmaLambda      = input.float(0.94, "EWMA sigma decay (lambda)",          minval = 0.5, maxval = 0.999, step = 0.001, group = grpRule)
+stopMinSigma    = input.float(1.0, "Stop floor, in EWMA sigmas",          minval = 0.1, step = 0.1, group = grpRule)
+
+grpBracket = "Bracket"
+rr              = input.float(2.0, "Reward:risk",                        minval = 0.1, step = 0.1, group = grpBracket)
+maxBarsInTrade  = input.int(40,   "Time-stop (bars)",                    minval = 1,  group = grpBracket)
+useBreakeven    = input.bool(true, "Move stop to breakeven",                          group = grpBracket)
+beBp            = input.float(9.3, "Breakeven trigger (bp of entry price)", minval = 0.1, step = 0.1, tooltip = "config.py's 10-pip equivalent per instrument: EUR/USD 9.3, XAU/USD 4.2, NAS100 5.0, USD/JPY 6.7. Set this to match the symbol on the chart.", group = grpBracket)
+
+grpDisplay = "Display"
+showBracketLines  = input.bool(true,  "Draw stop / target / entry while a trade is open", group = grpDisplay)
+showSetupMarkers  = input.bool(false, "Mark the breakout bar and the armed bar too",      group = grpDisplay)
+showExitMarkers   = input.bool(true,  "Mark exits (target / stop / breakeven / time)",    group = grpDisplay)
+showVwapEma       = input.bool(true,  "Plot session VWAP and its EMA",                    group = grpDisplay)
+showDisclaimer    = input.bool(true,  "Show the backtest-only disclaimer label",          group = grpDisplay)
+
+// ---- session id: the FX day runs 17:00 - 17:00 America/New_York -----
+// Matches fxrisk.data.intraday.session_id exactly: the calendar date
+// in New York, +1 once the New York hour reaches 17.
+nyHour     = hour(time, "America/New_York")
+nyYear     = year(time, "America/New_York")
+nyMonth    = month(time, "America/New_York")
+nyDay      = dayofmonth(time, "America/New_York")
+nyMidnight = timestamp("America/New_York", nyYear, nyMonth, nyDay, 0, 0)
+sessionIdx = math.floor(nyMidnight / 86400000) + (nyHour >= 17 ? 1 : 0)
+newSession = na(sessionIdx[1]) or sessionIdx != sessionIdx[1]
+
+// ---- session VWAP, tick/volume weighted, and its EMA -----------------
+// Session-anchored, reset at the New York 17:00 boundary - the
+// intraday convention, not a rolling window. Weighted by whatever this
+// feed reports as `volume`: Dukascopy reports a tick count for spot FX
+// (there is no consolidated tape), which is the convention the Python
+// side uses too. If your feed reports 0 for every bar, this is exactly
+// the condition fxrisk.strategies.breakout_retrace.session_vwap raises
+// on - the warning label below flags it.
+typicalPrice = (high + low + close) / 3.0
+var float cumPV  = 0.0
+var float cumVol = 0.0
+if newSession
+    cumPV  := 0.0
+    cumVol := 0.0
+cumPV  += typicalPrice * nz(volume)
+cumVol += nz(volume)
+sessionVwap = cumVol > 0 ? cumPV / cumVol : na
+vwapEma = ta.ema(sessionVwap, emaSpan)
+bias = vwapEma > sessionVwap ? 1 : vwapEma < sessionVwap ? -1 : 0
+
+noVolume = barstate.islast and ta.cum(nz(volume)) == 0
+if noVolume
+    label.new(bar_index, high,
+         "No volume on this feed - VWAP and this rule are\nundefined here (the same condition the Python\nengine refuses on). Use a symbol/feed that reports\nreal or tick volume.",
+         style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = size.small)
+
+// ---- breakout levels: the extreme of the PREVIOUS `lookback` bars ---
+// ta.highest(high, lookback)[1] at bar i is max(High[i-lookback : i]),
+// i.e. rolling(lookback).max().shift(1) in the Python - excludes the
+// current bar, which is what makes a close above it a breakout rather
+// than a tautology.
+hiPrev = ta.highest(high, lookback)[1]
+loPrev = ta.lowest(low, lookback)[1]
+
+// ---- causal EWMA sigma of log returns, lambda = 0.94 by default -----
+// Shifted by one bar: the estimate used to size the stop at bar i is
+// built only from returns through bar i-1, exactly as
+// fxrisk.strategies.breakout_retrace.ewma_sigma's .shift(1) does.
+logRet = math.log(close / close[1])
+var float ewmaVar = na
+ewmaVar := na(ewmaVar[1]) ? logRet * logRet : (1 - ewmaLambda) * logRet * logRet + ewmaLambda * ewmaVar[1]
+sigmaCausal = na(ewmaVar[1]) ? na : math.sqrt(ewmaVar[1])
+
+// ---- state machine -----------------------------------------------------
+// 0 = idle, 1 = watching a breakout for its retrace + confirm, 2 = in a trade.
+// Exactly one of the three blocks below runs per bar, chosen by the
+// state AT THE START of the bar - this is what keeps a breakout bar,
+// a retrace bar and an entry bar from ever being double-processed on
+// the same tick, and mirrors find_setups() starting its retrace scan
+// at i+1 and walk_explicit() starting its exit scan at i+1.
+var int state = 0
+
+// watch fields (gates 2-4)
+var float wSide           = na
+var float wLevel          = na
+var float wBoExtreme      = na
+var float wRetraceExtreme = na
+var bool  wArmed          = false
+var float wNear           = na
+var float wFar            = na
+var int   wStartBar       = na
+var int   wBoSession      = na
+
+// open-trade fields (gate 5)
+var float tSide     = na
+var float tEntry    = na
+var float tStop     = na
+var float tStop0    = na
+var float tTarget   = na
+var float tBeTrig   = na
+var bool  tBeArmed  = false
+var int   tEntryBar = na
+
+// Reset every bar; set true below only on the bar a trade confirms.
+bool buySignal  = false
+bool sellSignal = false
+
+if state == 0
+    // ---- gates 1 + 2: look for a fresh breakout ----
+    ready = not na(hiPrev) and not na(loPrev) and not na(sigmaCausal) and sigmaCausal > 0
+    breakoutUp = ready and close > hiPrev
+    breakoutDn = ready and close < loPrev
+    if breakoutUp or breakoutDn
+        side = breakoutUp ? 1.0 : -1.0
+        passesTrend = not useTrendFilter or bias == int(side)
+        if passesTrend
+            level = breakoutUp ? hiPrev : loPrev
+            impulse = math.abs(close - level)
+            if impulse > 0
+                wSide := side
+                wLevel := level
+                wBoExtreme := breakoutUp ? high : low
+                wRetraceExtreme := wBoExtreme
+                wArmed := false
+                wNear := level + side * impulse * (1.0 - minFraction)
+                wFar  := level + side * impulse * (1.0 - maxFraction)
+                wStartBar := bar_index
+                wBoSession := sessionIdx
+                state := 1
+                if showSetupMarkers
+                    label.new(bar_index, breakoutUp ? low : high, "BO",
+                         style = breakoutUp ? label.style_label_up : label.style_label_down,
+                         color = color.new(color.gray, 40), textcolor = color.white, size = size.tiny)
+
+else if state == 1
+    // ---- gate 3: track the retracement; gate 4: confirm the entry ----
+    sessionRolled = sessionIdx != wBoSession
+    windowExpired = bar_index - wStartBar > retraceMaxBars
+    if sessionRolled or windowExpired
+        state := 0
+    else if not wArmed
+        reach = wSide == 1 ? low : high
+        wRetraceExtreme := wSide == 1 ? math.min(wRetraceExtreme, reach) : math.max(wRetraceExtreme, reach)
+        beyond = wSide == 1 ? reach < wFar : reach > wFar
+        if beyond
+            state := 0  // failed breakout, not a pullback
+        else
+            touched = wSide == 1 ? reach <= wNear : reach >= wNear
+            if touched
+                wArmed := true
+                if showSetupMarkers
+                    label.new(bar_index, wSide == 1 ? high : low, "armed",
+                         style = wSide == 1 ? label.style_label_down : label.style_label_up,
+                         color = color.new(color.orange, 40), textcolor = color.white, size = size.tiny)
+    else
+        resumed = wSide == 1 ? close > wBoExtreme : close < wBoExtreme
+        if not resumed
+            reach = wSide == 1 ? low : high
+            wRetraceExtreme := wSide == 1 ? math.min(wRetraceExtreme, reach) : math.max(wRetraceExtreme, reach)
+            beyond = wSide == 1 ? reach < wFar : reach > wFar
+            if beyond
+                state := 0  // kept going through the level: a failure, not a pullback
+        else
+            // ---- CONFIRMED ENTRY: the bar this script marks BUY / SELL on ----
+            entryPx = close
+            structD = math.abs(entryPx - wRetraceExtreme)
+            floorD  = stopMinSigma * sigmaCausal * entryPx
+            stopD   = math.max(structD, floorD)
+            stop0   = entryPx - wSide * stopD
+            target  = entryPx + wSide * stopD * rr
+            beFrac  = beBp / 10000.0
+            beTrig  = entryPx + wSide * beFrac * entryPx
+
+            tSide     := wSide
+            tEntry    := entryPx
+            tStop     := stop0
+            tStop0    := stop0
+            tTarget   := target
+            tBeTrig   := beTrig
+            tBeArmed  := false
+            tEntryBar := bar_index
+            state := 2
+
+            if tSide == 1
+                buySignal := true
+                label.new(bar_index, low, "BUY", style = label.style_label_up,
+                     color = color.new(color.teal, 0), textcolor = color.white, size = size.small)
+            else
+                sellSignal := true
+                label.new(bar_index, high, "SELL", style = label.style_label_down,
+                     color = color.new(color.maroon, 0), textcolor = color.white, size = size.small)
+
+else if state == 2
+    // ---- gate 5: walk the open trade to its exit ----
+    // Target/stop checked on the bar's High/Low; if both are touched in
+    // the same bar the outcome resolves as STOP (or breakeven, if
+    // already armed) - the pessimistic reading fxrisk.risk.barriers.
+    // walk_explicit uses, never the flattering one. The breakeven stop
+    // arms on a CLOSE beyond the trigger, never on an intrabar touch,
+    // for the same reason.
+    hitTarget = tSide == 1 ? high >= tTarget : low <= tTarget
+    hitStop   = tSide == 1 ? low <= tStop : high >= tStop
+    timedOut  = bar_index - tEntryBar >= maxBarsInTrade
+
+    if hitTarget or hitStop or timedOut
+        outcome = hitStop ? (tBeArmed ? "breakeven" : "stop") : hitTarget ? "target" : "time"
+        exitPx  = hitStop ? tStop : hitTarget ? tTarget : close
+        if showExitMarkers
+            exitColor = outcome == "target" ? color.new(color.teal, 0) : outcome == "time" ? color.new(color.gray, 0) : color.new(color.maroon, 0)
+            exitText  = outcome == "target" ? "TP" : outcome == "stop" ? "SL" : outcome == "breakeven" ? "BE" : "T/O"
+            label.new(bar_index, exitPx, exitText, style = label.style_label_left,
+                 color = exitColor, textcolor = color.white, size = size.tiny)
+        state := 0
+    else if useBreakeven and not tBeArmed
+        reachedBe = tSide == 1 ? close >= tBeTrig : close <= tBeTrig
+        if reachedBe
+            tBeArmed := true
+            tStop := tEntry
+
+// ---- bracket lines while a trade is open -------------------------------
+var line entryLine   = na
+var line stopLine    = na
+var line targetLine  = na
+var bool linesActive = false
+
+if showBracketLines
+    if state == 2 and not linesActive
+        entryLine   := line.new(tEntryBar, tEntry, bar_index, tEntry, color = color.new(color.gray, 0), style = line.style_dashed)
+        stopLine    := line.new(tEntryBar, tStop0, bar_index, tStop, color = color.new(color.maroon, 0), style = line.style_dotted)
+        targetLine  := line.new(tEntryBar, tTarget, bar_index, tTarget, color = color.new(color.teal, 0), style = line.style_dotted)
+        linesActive := true
+    else if state == 2 and linesActive
+        line.set_xy2(entryLine, bar_index, tEntry)
+        line.set_xy2(stopLine, bar_index, tStop)
+        line.set_xy2(targetLine, bar_index, tTarget)
+    else if linesActive
+        linesActive := false
+
+// ---- VWAP / EMA trend filter plot --------------------------------------
+plot(showVwapEma and not noVolume ? sessionVwap : na, "Session VWAP", color = color.new(color.blue, 30), linewidth = 1)
+plot(showVwapEma and not noVolume ? vwapEma : na, "EMA(VWAP)", color = color.new(color.orange, 30), linewidth = 1)
+
+// ---- disclaimer, once ----------------------------------------------------
+if showDisclaimer and barstate.islast
+    label.new(bar_index, high,
+         "BACKTEST-ONLY. This exact rule, tested in Python on 4\ninstruments / 15m Dukascopy bars, found no edge: 23.0%\nwin rate vs 42.2% hurdle (t=-5.02), held-out risk-gated\n-0.352 mean R. Not a recommendation to trade.",
+         style = label.style_label_down, color = color.new(color.black, 20), textcolor = color.white, size = size.small)
+
+// ---- alerts ----------------------------------------------------------
+alertcondition(buySignal, title = "Breakout/retrace BUY confirmed", message = "Breakout/retrace rule: confirmed BUY on {{ticker}} {{interval}}")
+alertcondition(sellSignal, title = "Breakout/retrace SELL confirmed", message = "Breakout/retrace rule: confirmed SELL on {{ticker}} {{interval}}")
