@@ -92,6 +92,7 @@ showSetupMarkers  = input.bool(false, "Mark the breakout bar and the armed bar t
 showExitMarkers   = input.bool(true,  "Mark exits (target / stop / breakeven / time)",    group = grpDisplay)
 showVwapEma       = input.bool(true,  "Plot session VWAP and its EMA",                    group = grpDisplay)
 showDisclaimer    = input.bool(true,  "Show the backtest-only disclaimer label",          group = grpDisplay)
+showDebug         = input.bool(true,  "DEBUG: raw breakout markers + Data Window values",  group = grpDisplay, tooltip = "Temporary. Plots whether a 20-bar breakout happened on EVERY bar, independent of the trend filter, retrace state, or anything else - plus hiPrev/loPrev/sigma/state in the Data Window (tap a bar, or the (i) icon). If no tiny triangles show up anywhere, the breakout condition itself isn't firing; if triangles show up but BUY/SELL never does, the state machine past gate 2 is where to look.")
 
 // ---- session id: the FX day runs 17:00 - 17:00 America/New_York -----
 // Matches fxrisk.data.intraday.session_id exactly: the calendar date
@@ -182,11 +183,17 @@ var int   tEntryBar = na
 bool buySignal  = false
 bool sellSignal = false
 
+// ---- raw gate-1/2 check, computed every bar regardless of state ----
+// Hoisted out of the state machine on purpose: this is the ONLY thing
+// that has to be true for a breakout to exist at all, with nothing else
+// (trend filter, retrace state, whether a trade is already open) able
+// to hide it. See the DEBUG plots below.
+ready      = not na(hiPrev) and not na(loPrev) and not na(sigmaCausal) and sigmaCausal > 0
+breakoutUp = ready and close > hiPrev
+breakoutDn = ready and close < loPrev
+
 if state == 0
     // ---- gates 1 + 2: look for a fresh breakout ----
-    ready = not na(hiPrev) and not na(loPrev) and not na(sigmaCausal) and sigmaCausal > 0
-    breakoutUp = ready and close > hiPrev
-    breakoutDn = ready and close < loPrev
     if breakoutUp or breakoutDn
         side = breakoutUp ? 1.0 : -1.0
         passesTrend = not useTrendFilter or bias == int(side)
@@ -316,6 +323,23 @@ if showBracketLines
 // ---- VWAP / EMA trend filter plot --------------------------------------
 plot(showVwapEma and not noVolume ? sessionVwap : na, "Session VWAP", color = color.new(color.blue, 30), linewidth = 1)
 plot(showVwapEma and not noVolume ? vwapEma : na, "EMA(VWAP)", color = color.new(color.orange, 30), linewidth = 1)
+
+// ---- DEBUG: unconditional, independent of state/trend/retrace ----------
+// Tiny triangles on EVERY bar where the raw 20-bar breakout condition is
+// true, full stop - nothing else has to agree. If none of these ever
+// appear, the bug is in hiPrev/loPrev/sigmaCausal or the close-vs-level
+// comparison itself; if they appear but BUY/SELL never does, the bug (or
+// just strictness) is further down the chain, past gate 2.
+plotchar(showDebug and breakoutUp, "raw up-break", "▲", location.belowbar, color.new(color.aqua, 0), size = size.tiny)
+plotchar(showDebug and breakoutDn, "raw down-break", "▼", location.abovebar, color.new(color.fuchsia, 0), size = size.tiny)
+// Read these off any bar via the Data Window (tap the bar, or the (i)
+// icon bottom-left of the indicator's name in the legend).
+plot(showDebug ? hiPrev : na, "DEBUG hiPrev", display = display.data_window)
+plot(showDebug ? loPrev : na, "DEBUG loPrev", display = display.data_window)
+plot(showDebug ? sigmaCausal : na, "DEBUG sigmaCausal", display = display.data_window)
+plot(showDebug ? (ready ? 1 : 0) : na, "DEBUG ready (1/0)", display = display.data_window)
+plot(showDebug ? state : na, "DEBUG state (0 idle/1 watching/2 in trade)", display = display.data_window)
+plot(showDebug ? cumVolTotal : na, "DEBUG cumulative volume so far", display = display.data_window)
 
 // ---- disclaimer, once ----------------------------------------------------
 if showDisclaimer and barstate.islast
