@@ -124,7 +124,8 @@ sessionVwap = cumVol > 0 ? cumPV / cumVol : na
 vwapEma = ta.ema(sessionVwap, emaSpan)
 bias = vwapEma > sessionVwap ? 1 : vwapEma < sessionVwap ? -1 : 0
 
-noVolume = barstate.islast and ta.cum(nz(volume)) == 0
+cumVolTotal = ta.cum(nz(volume))  // must run unconditionally every bar, not inside the check below
+noVolume = barstate.islast and cumVolTotal == 0
 if noVolume
     label.new(bar_index, high,
          "No volume on this feed - VWAP and this rule are\nundefined here (the same condition the Python\nengine refuses on). Use a symbol/feed that reports\nreal or tick volume.",
