@@ -112,3 +112,35 @@ def load_test(raw_dir: str = DEFAULT_RAW_DIR) -> pd.DataFrame:
     are what actually stop the test from being run more than once; see
     that file."""
     return load_bars(TEST_START, pd.Timestamp.now(tz="UTC"), raw_dir)
+
+
+def real_cost_bp(bid: pd.DataFrame, ask: pd.DataFrame, bars: pd.DataFrame,
+                 commission_bp: float = 0.0) -> pd.Series:
+    """
+    Per-bar cost in bp PER SIDE: half the measured bid/ask spread,
+    plus commission. Same semantics as
+    `fxrisk.risk.spread.real_cost_bp` - half, because crossing the
+    spread once costs half of it relative to the mid, and the barrier
+    walk charges two sides - reading frames this module already loaded
+    instead of going back through `fxrisk.data.intraday`'s cache, which
+    this study's data does not live in.
+
+    Bars present on only one side are dropped, not filled - a missing
+    quote is not a zero spread. A crossed book (ask < bid) is a data
+    error, not a negative cost, and is clipped at zero.
+    """
+    if commission_bp < 0:
+        raise ValueError("commission_bp cannot be negative")
+
+    j = bid[["Close"]].join(ask[["Close"]], how="inner", lsuffix="_b", rsuffix="_a")
+    if j.empty:
+        raise ValueError("bid and ask frames share no timestamps")
+    mid = (j["Close_a"] + j["Close_b"]) / 2.0
+    s = ((j["Close_a"] - j["Close_b"]) / mid).clip(lower=0.0) * 10_000.0 / 2.0
+
+    if bars.index.equals(s.index):
+        out = s
+    else:
+        step = pd.Series(bars.index).diff().median()
+        out = s.resample(step, origin=bars.index[0]).median().reindex(bars.index)
+    return (out.ffill().fillna(out.median()) + commission_bp).rename("cost_bp")

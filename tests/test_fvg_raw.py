@@ -131,3 +131,36 @@ def test_load_bars_is_the_bid_side(tmp_path):
 def test_design_and_test_periods_meet_without_overlapping():
     assert fvg_raw.TEST_START == fvg_raw.DESIGN_END
     assert fvg_raw.DESIGN_START < fvg_raw.DESIGN_END
+
+
+def test_real_cost_bp_is_half_the_spread_plus_commission():
+    idx = pd.date_range("2024-01-01", periods=3, freq="1min", tz="UTC")
+    bid = pd.DataFrame({"Close": [100.0, 100.0, 100.0]}, index=idx)
+    ask = pd.DataFrame({"Close": [100.2, 100.2, 100.2]}, index=idx)
+    out = fvg_raw.real_cost_bp(bid, ask, bid, commission_bp=0.1)
+    # spread = 0.2/100.1 ~= 19.98bp; half of that + 0.1bp commission.
+    assert out.iloc[0] == pytest.approx(0.2 / 100.1 * 10000 / 2 + 0.1, rel=1e-6)
+
+
+def test_real_cost_bp_clips_a_crossed_book():
+    idx = pd.date_range("2024-01-01", periods=1, freq="1min", tz="UTC")
+    bid = pd.DataFrame({"Close": [100.0]}, index=idx)
+    ask = pd.DataFrame({"Close": [99.9]}, index=idx)  # ask below bid: a data error
+    out = fvg_raw.real_cost_bp(bid, ask, bid)
+    assert out.iloc[0] == 0.0
+
+
+def test_real_cost_bp_rejects_negative_commission():
+    idx = pd.date_range("2024-01-01", periods=1, freq="1min", tz="UTC")
+    bid = pd.DataFrame({"Close": [100.0]}, index=idx)
+    with pytest.raises(ValueError, match="commission_bp"):
+        fvg_raw.real_cost_bp(bid, bid, bid, commission_bp=-1.0)
+
+
+def test_real_cost_bp_raises_on_no_overlap():
+    idx1 = pd.date_range("2024-01-01", periods=1, freq="1min", tz="UTC")
+    idx2 = pd.date_range("2025-01-01", periods=1, freq="1min", tz="UTC")
+    bid = pd.DataFrame({"Close": [100.0]}, index=idx1)
+    ask = pd.DataFrame({"Close": [100.2]}, index=idx2)
+    with pytest.raises(ValueError, match="share no timestamps"):
+        fvg_raw.real_cost_bp(bid, ask, bid)
