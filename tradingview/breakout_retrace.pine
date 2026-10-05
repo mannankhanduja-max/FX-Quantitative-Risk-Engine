@@ -221,6 +221,8 @@ var int barsProcessed = 0
 var int barsReady     = 0
 var int breakoutsUp   = 0
 var int breakoutsDn   = 0
+var int armedCount    = 0
+var int entriesCount  = 0
 barsProcessed += 1
 if ready
     barsReady += 1
@@ -228,14 +230,10 @@ if breakoutUp
     breakoutsUp += 1
 if breakoutDn
     breakoutsDn += 1
-if showDebug and barstate.islast
-    label.new(bar_index, low,
-         "DEBUG counts (whole chart)\nbars processed: " + str.tostring(barsProcessed) +
-         "\nbars with ready=true: " + str.tostring(barsReady) +
-         "\nup-breakouts seen: " + str.tostring(breakoutsUp) +
-         "\ndown-breakouts seen: " + str.tostring(breakoutsDn),
-         style = label.style_label_up, color = color.new(color.navy, 0),
-         textcolor = color.white, size = size.normal)
+// armedCount and entriesCount are incremented further down, inside the
+// state machine itself (where "armed" and "confirmed entry" actually
+// happen) - the label below is drawn after that block runs, so the
+// counts it shows include anything that happened on the very last bar.
 
 if state == 0
     // ---- gates 1 + 2: look for a fresh breakout ----
@@ -277,6 +275,7 @@ else if state == 1
             touched = wSide == 1 ? reach <= wNear : reach >= wNear
             if touched
                 wArmed := true
+                armedCount += 1
                 if showSetupMarkers
                     label.new(bar_index, wSide == 1 ? high : low, "armed",
                          style = wSide == 1 ? label.style_label_down : label.style_label_up,
@@ -309,6 +308,7 @@ else if state == 1
             tBeArmed  := false
             tEntryBar := bar_index
             state := 2
+            entriesCount += 1
 
             if tSide == 1
                 buySignal := true
@@ -345,6 +345,27 @@ else if state == 2
         if reachedBe
             tBeArmed := true
             tStop := tEntry
+
+// ---- DEBUG label: drawn here, after the state machine, so it reflects
+// anything that happened on this exact bar too. If entriesCount is 0
+// while armedCount and breakoutsUp/Dn are large, the bug is gate 4
+// (CONFIRM: price must close back beyond the breakout bar's own high/
+// low after arming) - try widening "Retrace window (bars)" or check
+// whether `useTrendFilter` is filtering out every armed setup (toggle
+// it off to test). If armedCount is 0 while breakoutsUp/Dn are large,
+// the bug is gate 3 (RETRACE: price never pulls back into the
+// minFraction..maxFraction band before invalidating) - try widening
+// "Retrace max fraction of impulse".
+if showDebug and barstate.islast
+    label.new(bar_index, low,
+         "DEBUG counts (whole chart)\nbars processed: " + str.tostring(barsProcessed) +
+         "\nbars with ready=true: " + str.tostring(barsReady) +
+         "\nup-breakouts seen: " + str.tostring(breakoutsUp) +
+         "\ndown-breakouts seen: " + str.tostring(breakoutsDn) +
+         "\narmed (retrace qualified): " + str.tostring(armedCount) +
+         "\nconfirmed entries (BUY+SELL): " + str.tostring(entriesCount),
+         style = label.style_label_up, color = color.new(color.navy, 0),
+         textcolor = color.white, size = size.normal)
 
 // ---- bracket lines while a trade is open -------------------------------
 var line entryLine   = na
