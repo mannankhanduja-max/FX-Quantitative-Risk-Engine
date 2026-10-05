@@ -89,12 +89,15 @@ jobs:
           # These reach the network by design. Everything else must
           # run from the local cache.
           #   fetch_data.py     downloads the Yahoo bars
+          #   fetch_intraday.py downloads Dukascopy intraday bars
+          #   fetch_fvg_raw.py  downloads Dukascopy XAU/USD 1m bid/ask
+          #                     for the FVG design/test study
           #   quant_metrics.py  standalone rolling-metrics script
           #   paper_trade.py    Alpaca paper broker, execution only -
           #                     its SIGNAL still comes from the local
           #                     consolidated cache, not from the broker
-          ALLOWED = {"fetch_data.py", "fetch_intraday.py", "quant_metrics.py",
-                     "paper_trade.py"}
+          ALLOWED = {"fetch_data.py", "fetch_intraday.py", "fetch_fvg_raw.py",
+                     "quant_metrics.py", "paper_trade.py"}
           NETWORK = {
               "yfinance", "requests", "urllib", "urllib3", "http",
               "httpx", "aiohttp", "socket", "pandas_datareader",
