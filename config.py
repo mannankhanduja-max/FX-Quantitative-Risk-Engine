@@ -345,6 +345,29 @@ UNIVERSE_INTRADAY = [
     IntradayInstrument("XAU/USD", "XAU/USD",  be_bp=4.2, kind="metal"),
     IntradayInstrument("NAS100",  "E_NQ-100", be_bp=5.0, kind="index"),
     IntradayInstrument("USD/JPY", "USD/JPY",  be_bp=6.7),
+    # Added 2026-09 to buy statistical power at the 1h monitoring
+    # frame, not because either looked promising.
+    #
+    # THE STATED REASON FOR GBP/JPY WAS WRONG, and the measurement is
+    # left here rather than the reasoning. I expected roughly twice
+    # EUR/USD's volatility on a spread that does not scale, which would
+    # move 2*spread/stop the right way. Measured: 1h ATR of 13.9bp
+    # against EUR/USD's 11.1bp - only a quarter more - on a spread 2.7x
+    # as wide. cost_R is 0.115 against EUR/USD's 0.094, so it is the
+    # MOST expensive major here, not the cheapest. GBP/JPY's reputation
+    # for volatility is denominated in pips, and a yen cross quoting
+    # near 195 has small pips; in percentage terms it is unremarkable.
+    # That is the same unit confusion be_bp exists to warn about.
+    #
+    # AUD/NZD is here for the other reason: the only pair in this
+    # universe with no USD leg, so the only one whose errors are close
+    # to independent of the rest. Its cost was predicted to be the
+    # worst and is: 1.82bp of spread on an 8.5bp ATR, cost_R 0.295.
+    #
+    # Measured spreads (round trip, median): GBP/JPY 0.91bp,
+    # AUD/NZD 1.82bp, against EUR/USD 0.34 and XAU/USD 1.62.
+    IntradayInstrument("GBP/JPY", "GBP/JPY",  be_bp=12.0),
+    IntradayInstrument("AUD/NZD", "AUD/NZD",  be_bp=14.0),
 ]
 
 # ============================================================

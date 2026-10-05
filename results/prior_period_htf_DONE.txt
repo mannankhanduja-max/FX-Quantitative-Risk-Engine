@@ -1,0 +1,20 @@
+run: 2026-09-26T03:01:16.759683+00:00
+window: 2021-09-07 12:00:00-04:00 -> 2023-08-31 12:00:00-04:00
+trades: 1120
+PRIMARY: FAIL
+ROBUST:  FAIL
+frozen.ladder: ('1h', '4h', '1D')
+frozen.setups: ('breakout', 'fakeout', 'retrace')
+frozen.confirm: fvg
+frozen.bias: None
+frozen.instruments: ('EUR/USD', 'XAU/USD', 'NAS100', 'USD/JPY')
+frozen.rr: 3.0
+frozen.stop_mode: atr
+frozen.atr_period: 14
+frozen.stop_sigma: 1.0
+frozen.max_bars: 80
+frozen.setup_lookback: 20
+frozen.trigger_window: 6
+frozen.commission_bp: 0.35
+frozen.sessions: per-instrument
+frozen.blackout: True

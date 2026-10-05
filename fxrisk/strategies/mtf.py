@@ -43,6 +43,53 @@ the benchmark measures: a tighter stop lowers the dollar loss per
 trade AND raises the hurdle, so the two effects fight, and only the
 data settles it.
 
+CHOOSING THE REWARD RATIO, AND THE TIME LIMIT WITH IT
+------------------------------------------------------
+These two are one decision, not two, and getting that wrong
+produced the worst error in this study.
+
+An 8:1 target with a 60-bar limit looked like the best
+configuration measured here. It was not. At that geometry most
+winners never reach the target inside the limit, so they close at
+market - and those closes averaged +2.8 to +3.6R while the trades
+that actually RESOLVED AT A BARRIER lost money. The headline mean
+was roughly sixty lucky time-outs. The Black-Scholes benchmark
+describes barrier resolutions only, so comparing it to a mean that
+time exits dominate compares two different things.
+
+So the reward ratio is chosen on the BARRIER population, with the
+time limit set long enough that time exits are negligible and the
+benchmark comparison is therefore valid. Measured across the four
+instruments, ATR(14) stop, real spread plus 0.35bp commission:
+
+    rr   bars    time%    win      BM       z     barrier R
+   1.5     80     0.1%  39.94%  40.00%   -0.11     -0.2117
+   2.0     80     0.1%  35.53%  33.33%   +4.52     -0.1448
+   2.5     80     0.1%  31.80%  28.57%   +6.67     -0.0965
+   3.0     80     0.1%  28.19%  25.00%   +6.68     -0.0811
+   4.0     80     0.3%  22.89%  20.00%   +6.19     -0.0645
+   5.0     80     0.6%  18.79%  16.67%   +4.67     -0.0816
+   6.0     80     0.7%  16.58%  14.29%   +5.19     -0.0472
+
+3:1 with an 80-bar limit is the default because it sits at the
+peak of the directional evidence (z +6.68, tied with 2.5:1 and the
+strongest in this study) with time exits at 0.1%, so nothing in
+the number is an artefact of where the limit happened to fall.
+Below 2:1 the edge disappears entirely - at 1.5:1 the realised win
+rate is BELOW the benchmark. Above 4:1 the z falls and time exits
+start to contaminate again.
+
+6:1 loses slightly less money per trade (-0.047 against -0.081),
+and is not the default: it buys that on weaker evidence and a
+thinner barrier population, which is the same trade that made 8:1
+look good. When nothing is profitable, the configuration worth
+keeping is the one whose measurement is most trustworthy, not the
+one that loses least.
+
+WHAT IT WOULD TAKE. At 3:1 the gross edge is +0.128R against a
+cost of 0.209R. Breakeven needs the round trip down to 62% of what
+it currently is. That is the whole gap, stated as one number.
+
 BACKTEST-ONLY. Not a recommendation to trade.
 """
 
@@ -69,9 +116,13 @@ class MTFConfig:
     retrace_max: float = 1.00
     retrace_window: int = 6      # 30m bars allowed for the pullback
     trigger_window: int = 6      # 5m bars allowed to trigger after a setup
-    stop_sigma: float = 1.0      # floor on the stop, in 5m EWMA sigmas
-    max_bars_30m: int = 20       # time limit, in 30m bars
+    stop_sigma: float = 1.0      # floor on the stop, in 5m volatility units
+    stop_mode: str = "atr"       # "atr" (true range) or "sigma" (close-to-close)
+    atr_period: int = 14         # Wilder's period, when stop_mode="atr"
+    max_bars_30m: int = 80       # time limit, in 30m bars. Long on purpose:
+                                 # see CHOOSING THE REWARD RATIO below.
     lam: float = 0.94
+    vwap_filter: str = "none"    # "none" | "revert" | "trend"
 
     def __post_init__(self) -> None:
         if self.bias_ema < 1:
@@ -84,6 +135,12 @@ class MTFConfig:
             raise ValueError("windows must be at least 1")
         if self.stop_sigma <= 0:
             raise ValueError("stop_sigma must be positive")
+        if self.vwap_filter not in ("none", "revert", "trend"):
+            raise ValueError("vwap_filter must be 'none', 'revert' or 'trend'")
+        if self.stop_mode not in ("sigma", "atr"):
+            raise ValueError("stop_mode must be 'sigma' or 'atr'")
+        if self.atr_period < 2:
+            raise ValueError("atr_period must be at least 2")
 
 
 def align_to(lower_index: pd.DatetimeIndex, higher: pd.Series) -> pd.Series:
@@ -190,6 +247,74 @@ def setups_30m(bars_30m: pd.DataFrame, cfg: MTFConfig | None = None,
     return pd.DataFrame(rows, columns=["known_at", "side", "level", "kind"])
 
 
+def session_vwap(bars: pd.DataFrame) -> pd.Series:
+    """
+    Tick-weighted VWAP, reset at each 17:00 New York session roll.
+
+    Cumulative to and including the current bar, which is legitimate:
+    every term in it is known at that bar's close.
+    """
+    tp = (bars["High"] + bars["Low"] + bars["Close"]) / 3.0
+    vol = pd.to_numeric(bars["Volume"], errors="coerce").fillna(0.0)
+    if (vol <= 0).all():
+        raise ValueError("volume is zero on every bar, so VWAP is undefined")
+    sess = pd.Series(session_id(bars.index).to_numpy(), index=bars.index)
+    num = (tp * vol).groupby(sess).cumsum()
+    den = vol.groupby(sess).cumsum().replace(0, np.nan)
+    return (num / den).rename("vwap")
+
+
+def true_range(bars: pd.DataFrame) -> pd.Series:
+    """
+    Wilder's true range: the greater of this bar's own range and its
+    gap from the previous close, in either direction.
+
+        TR = max(high - low,
+                 |high - prev_close|,
+                 |low  - prev_close|)
+
+    WHY IT IS NOT THE SAME AS THE EWMA SIGMA THIS MODULE USED
+    -----------------------------------------------------------
+    The EWMA sigma is built from CLOSE-TO-CLOSE log returns. It
+    cannot see what happened inside a bar, and it cannot see a gap
+    at all: a bar that opens well away from the previous close and
+    then goes nowhere contributes almost nothing to it.
+
+    A stop is hit by the INTRABAR extreme, not by the close. So a
+    close-to-close measure systematically understates the distance
+    price can travel against a position within one bar, and a stop
+    floored on it is placed too tight - most of all around the
+    session open and the seconds after a release, which is exactly
+    where this rule set trades.
+
+    True range is the standard fix and is what ATR is built from.
+    Whether it actually helps here is a measurement, not an
+    assumption: a wider stop lowers cost in units of risk but also
+    moves the target further away.
+    """
+    high = bars["High"].astype("float64")
+    low = bars["Low"].astype("float64")
+    prev = bars["Close"].astype("float64").shift(1)
+    tr = pd.concat([(high - low),
+                    (high - prev).abs(),
+                    (low - prev).abs()], axis=1).max(axis=1)
+    return tr.rename("true_range")
+
+
+def atr(bars: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Average true range, Wilder's smoothing, SHIFTED so that the
+    value at bar t uses only bars up to t-1.
+
+    The shift is the whole safety property. An ATR that includes
+    the current bar sizes the stop using the very range the stop is
+    about to be tested against.
+    """
+    tr = true_range(bars)
+    out = tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    return out.shift(1).rename("atr")
+
+
 def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                bias_1h: pd.Series | None, cfg: MTFConfig | None = None) -> pd.DataFrame:
     """
@@ -207,8 +332,18 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
     close = bars_5m["Close"].to_numpy(dtype="float64")
     high = bars_5m["High"].to_numpy(dtype="float64")
     low = bars_5m["Low"].to_numpy(dtype="float64")
-    r = np.log(bars_5m["Close"]).diff()
-    sig = np.sqrt(r.pow(2).ewm(alpha=1 - cfg.lam, adjust=False).mean()).shift(1).to_numpy()
+    # The stop floor's unit. "sigma" is the EWMA of close-to-close
+    # log returns and is dimensionless, so it is multiplied by price
+    # below. "atr" is already in price units and is not.
+    if cfg.stop_mode == "atr":
+        vol = atr(bars_5m, cfg.atr_period).to_numpy()
+        vol_is_price = True
+    else:
+        r = np.log(bars_5m["Close"]).diff()
+        vol = np.sqrt(r.pow(2).ewm(alpha=1 - cfg.lam,
+                                   adjust=False).mean()).shift(1).to_numpy()
+        vol_is_price = False
+    sig = vol
 
     # bias_1h=None removes the 1h direction filter entirely - no
     # session VWAP, no 9 EMA. The setup's own side then decides,
@@ -221,6 +356,25 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
             else align_to(bars_5m.index, bias_1h).to_numpy())
     idx = bars_5m.index
 
+    # VWAP AS A LOCATION FILTER, NOT A TREND FILTER
+    # ----------------------------------------------
+    # The 9-EMA-of-VWAP trend gate was removed from this rule because
+    # it cut two thirds of the trades and the win rate went UP without
+    # it. But that was VWAP used as a DIRECTION signal, and this is a
+    # fade strategy - the direction is already decided by the setup.
+    #
+    # "revert" uses VWAP the way a fade should: as the session's
+    # volume-weighted fair value. A long is only taken when price is
+    # BELOW it and a short only when price is ABOVE it, so the trade
+    # is always toward value rather than away from it. That is a
+    # location condition, like the fair value gap, and it is the use
+    # of VWAP consistent with the only effect this data confirmed -
+    # short-horizon reversion.
+    #
+    # "trend" restores the old behaviour for comparison.
+    vwap = (session_vwap(bars_5m).to_numpy()
+            if cfg.vwap_filter != "none" else None)
+
     rows = []
     last_bar = -1
     for s in setups.sort_values("known_at").itertuples(index=False):
@@ -230,6 +384,18 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                 continue
             if bias is not None and bias[k] != s.side:
                 continue
+            if vwap is not None and np.isfinite(vwap[k]):
+                if cfg.vwap_filter == "revert":
+                    # long only below value, short only above it
+                    if s.side > 0 and close[k] >= vwap[k]:
+                        continue
+                    if s.side < 0 and close[k] <= vwap[k]:
+                        continue
+                elif cfg.vwap_filter == "trend":
+                    if s.side > 0 and close[k] <= vwap[k]:
+                        continue
+                    if s.side < 0 and close[k] >= vwap[k]:
+                        continue
             # THE TRIGGER: this 5m bar closed beyond the PREVIOUS
             # 5m close, in the setup's direction. Nothing else.
             # Deliberately not "beyond the 30m setup level" - the
@@ -241,7 +407,9 @@ def entries_5m(bars_5m: pd.DataFrame, setups: pd.DataFrame,
                 continue
             entry = close[k]
             structural = low[k] if s.side > 0 else high[k]
-            d = max(abs(entry - structural), cfg.stop_sigma * sig[k] * entry)
+            floor = (cfg.stop_sigma * sig[k] if vol_is_price
+                     else cfg.stop_sigma * sig[k] * entry)
+            d = max(abs(entry - structural), floor)
             rows.append({"time": idx[k], "side": s.side, "entry": entry,
                          "stop": entry - s.side * d, "kind": s.kind})
             last_bar = k
@@ -312,6 +480,12 @@ SESSION_WINDOWS: dict[str, tuple[str, float, float]] = {
     "tokyo": ("Asia/Tokyo", 9.0, 17.0),
     "london": ("Europe/London", 8.0, 16.5),
     "newyork": ("America/New_York", 8.0, 16.0),
+    # Sydney is where AUD and NZD actually price. It is added as its
+    # own window rather than folding AUD/NZD into Tokyo, because it
+    # opens two hours earlier and - unlike Tokyo - observes DST, on
+    # the southern hemisphere's schedule. Writing it as a Tokyo offset
+    # would be wrong for most of the year in both directions.
+    "sydney": ("Australia/Sydney", 8.0, 17.0),
 }
 
 # Which centres each instrument is allowed to trade in.
@@ -320,6 +494,9 @@ INSTRUMENT_SESSIONS: dict[str, tuple[str, ...]] = {
     "XAU/USD": ("london", "newyork"),
     "EUR/USD": ("london", "newyork"),
     "NAS100": ("newyork",),
+    # Both legs' home centres, same liquidity claim as the others.
+    "GBP/JPY": ("tokyo", "london"),
+    "AUD/NZD": ("sydney", "tokyo"),
 }
 
 

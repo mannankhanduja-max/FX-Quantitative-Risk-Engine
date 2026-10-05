@@ -181,9 +181,28 @@ def main() -> int:
     ap.add_argument("--side", default="bid", choices=("bid", "ask"),
                     help="ask writes a parallel _ask cache; "
                          "ask minus bid is the real spread")
+    ap.add_argument("--only", default="",
+                    help="comma-separated instrument names or cache slugs "
+                         "to fetch, e.g. --only GBP/JPY,AUD/NZD. Default is "
+                         "the whole universe. Adding an instrument should "
+                         "not re-download the five years already cached for "
+                         "the others - the archive does not change, and "
+                         "re-pulling it is rude to a free endpoint.")
     args = ap.parse_args()
 
     universe = config.UNIVERSE_INTRADAY
+    if args.only:
+        want = {w.strip().upper() for w in args.only.split(",") if w.strip()}
+        universe = [i for i in universe
+                    if i.name.upper() in want or i.yahoo.upper() in want]
+        missing = want - {i.name.upper() for i in universe} \
+                       - {i.yahoo.upper() for i in universe}
+        if missing:
+            raise SystemExit(
+                f"--only names nothing in the universe: {sorted(missing)}; "
+                f"known: {sorted(i.name for i in config.UNIVERSE_INTRADAY)}")
+        if not universe:
+            raise SystemExit("--only selected no instruments")
 
     if args.check:
         print(f"Cache report: {args.cache_dir}, interval {args.interval}\n")

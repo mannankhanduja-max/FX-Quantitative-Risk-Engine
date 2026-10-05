@@ -1,0 +1,3 @@
+ran once on 2026-09-26T03:50:36.494170+00:00
+criteria: docs/PREREG_forward_return.md
+result:   results/forward_return.txt

@@ -1,0 +1,36 @@
+SIX INSTRUMENTS AT THE 1h MONITORING FRAME
+  3:1, ATR(14) x1.0, measured spread + 0.35bp/side, 320-bar limit
+  null-path bias at this frame: -0.78% (H0 for every t below)
+  cells = (instrument, calendar month); t is taken ACROSS cells
+  data   2021-09-07 -> 2026-09-24
+
+  instrument      n     win      BM   excess  corrected  cells      t    net R      t
+  EUR/USD       686  23.54%  25.00%   -1.46%     +0.06%     60  +0.04  -0.1222  -1.88
+  XAU/USD       652  27.34%  25.02%   +2.33%     +3.53%     60  +1.92  +0.0172  +0.25
+  NAS100        554  27.31%  25.00%   +2.31%     +3.25%     60  +1.49  +0.0453  +0.60
+  USD/JPY       745  26.05%  25.01%   +1.04%     +0.77%     60  +0.43  -0.0226  -0.35
+  GBP/JPY       751  25.17%  25.00%   +0.16%     +1.31%     60  +0.83  -0.0978  -1.55 *
+  AUD/NZD       515  23.54%  25.02%   -1.48%     -1.92%     60  -1.05  -0.3196  -4.25 *
+
+  POOLED       3903  25.50%  25.01%   +0.49%     +1.17%    360  +1.59  -0.0775  -2.77
+
+DROP-ONE ROBUSTNESS (corrected excess with each removed)
+  without EUR/USD       +1.39%  t  +1.67   net R  -0.0680
+  without XAU/USD       +0.69%  t  +0.87   net R  -0.0965
+  without NAS100        +0.75%  t  +0.98   net R  -0.0978
+  without USD/JPY       +1.24%  t  +1.54   net R  -0.0904
+  without GBP/JPY       +1.14%  t  +1.38   net R  -0.0726
+  without AUD/NZD       +1.78%  t  +2.23   net R  -0.0407
+
+FORWARD RETURN, the two new instruments only (bp)
+  instrument               h=1              h=4             h=24             h=96
+  GBP/JPY         -0.10 (-0.22)     -0.16 (-0.15)     -2.21 (-0.92)     -6.45 (-1.18)
+  AUD/NZD         -0.48 (-1.68)     -0.40 (-0.86)     -2.07 (-1.61)     -0.25 (-0.10)
+
+VERDICT against docs/PREREG_added_power.md
+  [FAIL]  corrected excess > 0 with t > 2
+  [FAIL]  mean net R > 0
+  [PASS]  survives dropping any one instrument
+
+  FAIL. Underpowered was the last defence of this rule and
+  the power has now been added. The strategy is closed.

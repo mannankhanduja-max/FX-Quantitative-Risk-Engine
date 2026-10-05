@@ -42,6 +42,9 @@ def run_one(inst, args, kinds):
     b1h = resample(b5, "1h")
 
     cfg = mtf.MTFConfig(stop_sigma=args.stop_sigma,
+                        stop_mode=args.stop_mode,
+                        vwap_filter=args.vwap_filter,
+                        atr_period=args.atr_period,
                         setup_lookback=args.lookback,
                         trigger_window=args.trigger_window,
                         max_bars_30m=args.max_bars)
@@ -137,11 +140,11 @@ def report(name, trades, rr):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rr", type=float, default=2.0)
+    ap.add_argument("--rr", type=float, default=3.0)
     ap.add_argument("--stop-sigma", type=float, default=1.0)
     ap.add_argument("--lookback", type=int, default=20)
     ap.add_argument("--trigger-window", type=int, default=6)
-    ap.add_argument("--max-bars", type=int, default=20)
+    ap.add_argument("--max-bars", type=int, default=80)
     ap.add_argument("--cost-bp", type=float, default=config.BREAKOUT_COST_BP)
     ap.add_argument("--sessions", default="per-instrument",
                     help="per-instrument | all | london+newyork | ...")
@@ -150,12 +153,22 @@ def main():
     ap.add_argument("--cost", default="real",
                     choices=("real", "activity", "flat"),
                     help="real = measured ask-bid; the others are proxies")
-    ap.add_argument("--commission-bp", type=float, default=0.0,
+    # 0.35bp per side is an ordinary retail raw/ECN commission. The
+    # headline figure should be what an account actually pays, not a
+    # frictionless number that needs a footnote.
+    ap.add_argument("--commission-bp", type=float, default=0.35,
                     help="per side, on top of the measured spread")
     ap.add_argument("--cost-power", type=float, default=0.5)
-    ap.add_argument("--bias", action="store_true", default=True)
-    ap.add_argument("--no-bias", dest="bias", action="store_false",
-                    help="drop the 1h session-VWAP / 9-EMA direction filter")
+    # The 1h session-VWAP / 9-EMA direction filter is OFF by default.
+    # Measured twice on different geometries: it removes two thirds of
+    # the trades and the win rate goes UP without it. --bias restores
+    # it for comparison.
+    ap.add_argument("--bias", action="store_true", default=False)
+    ap.add_argument("--no-bias", dest="bias", action="store_false")
+    ap.add_argument("--vwap-filter", default="none",
+                    choices=("none","revert","trend"))
+    ap.add_argument("--stop-mode", default="atr", choices=("sigma","atr"))
+    ap.add_argument("--atr-period", type=int, default=14)
     ap.add_argument("--confirm", default="fvg",
                     choices=("none", "fvg", "ob", "both"),
                     help="retracement must land in a fair value gap "
@@ -167,7 +180,9 @@ def main():
     print("MULTI-TIMEFRAME CASCADE  1h bias -> 30m setup -> 5m trigger -> 30m exit")
     print(f"  {args.rr:g}:1, stop floor {args.stop_sigma:g} sigma (5m), "
           f"{args.cost_bp:g}bp/side, setups: {','.join(kinds)}")
-    print(f"  retrace confirmation: {args.confirm}")
+    print(f"  stop basis: {args.stop_mode}"
+          + (f" ({args.atr_period})" if args.stop_mode=="atr" else "")
+          + f"   retrace confirmation: {args.confirm}")
     print(f"  1h bias filter: {'on' if args.bias else 'OFF (no VWAP, no 9 EMA)'}")
     print(f"  sessions: {args.sessions}   blackout: {args.blackout}   "
           f"cost: {args.cost}"
