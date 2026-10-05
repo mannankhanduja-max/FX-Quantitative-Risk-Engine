@@ -983,6 +983,71 @@ signal.
 
 ---
 
+## 5b. FVG-confirmed breakout/retracement — a pre-registered design/test split
+
+§5a names two fitted-looking free parameters (the retracement band
+and the wait) that had never been held out, and calls holding them
+out "the obvious next step... not done." This is that step, done as
+its own study rather than bolted onto 5a, on 1-minute XAU/USD rather
+than 15-minute, so the design and test periods are both large enough
+to be worth the exercise.
+
+### The rule
+
+Same gate as §5a's breakout/retracement (trend filter, 20-bar
+breakout, 33%-100% retrace, EWMA-sigma stop floor, 2:1, triple-barrier
+walk), plus one more AND-gate: the retracement must touch a **fair
+value gap** — a 3-bar price imbalance (`fxrisk/strategies/smc.py`) —
+that was already knowable (`known_bar`) before the touch, never one
+that only existed in hindsight. The FVG is a location filter on an
+existing setup, not a replacement for it: everything in §5a's gate
+still has to fire first.
+
+### The discipline
+
+```
+data/raw/XAUUSD_1m_{bid,ask}_<year>.csv     fetch_fvg_raw.py (your machine - see below)
+fxrisk/data/fvg_raw.py                      DESIGN 2015-01-01 -> 2022-01-01
+                                             TEST   2022-01-01 -> now
+fxrisk/strategies/fvg_retrace.py            the rule
+run_fvg_design.py                           make run        - free to re-run
+PREREGISTRATION.md                          criteria, signed BEFORE the test runs
+run_fvg_test.py                             make run-test   - one-shot, gated
+```
+
+`run_fvg_test.py` refuses to run until `PREREGISTRATION.md` no
+longer contains its `<<SIGN HERE>>` placeholder AND is committed
+with no uncommitted diff, and writes `results/fvg_test_DONE.txt` so
+it can only run once without `--force`. The point isn't the
+mechanism — it's that the criteria are frozen in git history before
+the number that would otherwise tempt you to move them exists.
+
+### Running it
+
+```bash
+pip install dukascopy-python
+python fetch_fvg_raw.py --side both      # your machine - see FETCH_FVG_DESIGN.md
+make run                                  # design period, free to iterate
+# ... fill in and sign PREREGISTRATION.md, commit it ...
+make run-test                             # held-out test, once
+```
+
+`make run-demo` (`python run_fvg_design.py --demo`) runs the whole
+pipeline on synthetic bid/ask bars, labelled `DEMO_SIMULATED_`
+throughout, so the mechanics can be checked without the real
+download in place — a random walk has no edge by construction, so
+this is never reported as a finding.
+
+Optional subsets — a news-event calendar and named stress windows —
+are documented in [`fvg_config/README.md`](fvg_config/README.md).
+Neither file ships with this repository; a calendar of real events is
+a factual claim, and an invented one would quietly bias exactly the
+subset it defines.
+
+**BACKTEST-ONLY. Not a recommendation to trade.**
+
+---
+
 ## 6. `quant_metrics.py` — the original pipeline
 
 The repository began as a compact rolling-metrics pipeline, and that
