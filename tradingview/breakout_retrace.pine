@@ -23,9 +23,12 @@ indicator("Breakout / Retracement (FX-Quantitative-Risk-Engine)", overlay = true
 //                 bar's own extreme, in the original direction. This
 //                 is the bar this script marks BUY / SELL on.
 //   5  BRACKET    stop at the retracement extreme (floored at
-//                 `stopMinSigma` EWMA sigmas), target at `rr` times
-//                 that distance, stop moved to breakeven once price
-//                 has closed `beBp` basis points in favour.
+//                 `stopMinSigma` EWMA sigmas, or `atrMinMult` ATR
+//                 multiples if "Stop floor method" is set to ATR -
+//                 see fxrisk/strategies/mtf.py's stop_mode="atr" for
+//                 that convention), target at `rr` times that
+//                 distance, stop moved to breakeven once price has
+//                 closed `beBp` basis points in favour.
 //
 // WHAT THE PYTHON BACKTEST FOUND, ON THIS EXACT RULE
 // ---------------------------------------------------------------------
@@ -78,7 +81,10 @@ minFraction     = input.float(0.33, "Retrace min fraction of impulse",   minval 
 maxFraction     = input.float(1.00, "Retrace max fraction of impulse",   minval = 0.01, maxval = 2.00, step = 0.01, group = grpRule)
 useTrendFilter  = input.bool(true, "Require VWAP/EMA trend filter",                   group = grpRule)
 ewmaLambda      = input.float(0.94, "EWMA sigma decay (lambda)",          minval = 0.5, maxval = 0.999, step = 0.001, group = grpRule)
-stopMinSigma    = input.float(1.0, "Stop floor, in EWMA sigmas",          minval = 0.1, step = 0.1, group = grpRule)
+stopMinSigma    = input.float(1.0, "Stop floor, in EWMA sigmas (if method = EWMA sigma)", minval = 0.1, step = 0.1, group = grpRule)
+stopFloorMethod = input.string("EWMA sigma", "Stop floor method", options = ["EWMA sigma", "ATR"], tooltip = "EWMA sigma matches breakout_retrace.py's ewma_sigma(). ATR matches the alternate stop_mode=\"atr\" convention used elsewhere in this repo (fxrisk/strategies/mtf.py).", group = grpRule)
+atrPeriod       = input.int(14,    "ATR period (if method = ATR)",        minval = 1,  group = grpRule)
+atrMinMult      = input.float(1.0, "Stop floor, in ATR multiples (if method = ATR)", minval = 0.1, step = 0.1, group = grpRule)
 
 grpBracket = "Bracket"
 rr              = input.float(2.0, "Reward:risk",                        minval = 0.1, step = 0.1, group = grpBracket)
@@ -92,7 +98,7 @@ showSetupMarkers  = input.bool(false, "Mark the breakout bar and the armed bar t
 showExitMarkers   = input.bool(true,  "Mark exits (target / stop / breakeven / time)",    group = grpDisplay)
 showVwapEma       = input.bool(true,  "Plot session VWAP and its EMA",                    group = grpDisplay)
 showDisclaimer    = input.bool(true,  "Show the backtest-only disclaimer label",          group = grpDisplay)
-showDebug         = input.bool(true,  "DEBUG: raw breakout markers + Data Window values",  group = grpDisplay, tooltip = "Temporary. Plots whether a 20-bar breakout happened on EVERY bar, independent of the trend filter, retrace state, or anything else - plus hiPrev/loPrev/sigma/state in the Data Window (tap a bar, or the (i) icon). If no tiny triangles show up anywhere, the breakout condition itself isn't firing; if triangles show up but BUY/SELL never does, the state machine past gate 2 is where to look.")
+showDebug         = input.bool(true,  "DEBUG: raw breakout markers + Data Window values",  group = grpDisplay, tooltip = "Temporary. Plots whether a breakout happened on EVERY bar, independent of the trend filter, retrace state, or anything else - plus hiPrev/loPrev/sigma/ATR/floor/state in the Data Window (tap a bar, or the (i) icon), AND a label at the latest bar with running counts (bars processed, bars ready, up/down breakouts seen) for the whole visible chart - read that one label first, it's easier than hunting for tiny triangles. If breakoutsUp+breakoutsDn is 0, the breakout condition itself isn't firing (check barsReady too); if they're nonzero but BUY/SELL never appears, the state machine past gate 2 is where to look.")
 
 // ---- session id: the FX day runs 17:00 - 17:00 America/New_York -----
 // Matches fxrisk.data.intraday.session_id exactly: the calendar date
@@ -149,6 +155,17 @@ var float ewmaVar = na
 ewmaVar := na(ewmaVar[1]) ? logRet * logRet : (1 - ewmaLambda) * logRet * logRet + ewmaLambda * ewmaVar[1]
 sigmaCausal = na(ewmaVar[1]) ? na : math.sqrt(ewmaVar[1])
 
+// ---- causal ATR, the alternate stop-floor convention -----------------
+// ta.atr(atrPeriod)[1]: the ATR as it stood one bar ago, same
+// shift-by-one discipline as sigmaCausal - the stop floor at bar i must
+// only ever use information through bar i-1.
+atrCausal = ta.atr(atrPeriod)[1]
+
+// Whichever method is selected, floorPrice is the stop-floor DISTANCE
+// in price units (not a fraction) - what gate 5 floors structD against.
+floorPrice = stopFloorMethod == "ATR" ? atrMinMult * atrCausal : stopMinSigma * sigmaCausal * close
+floorReady = stopFloorMethod == "ATR" ? not na(atrCausal) and atrCausal > 0 : not na(sigmaCausal) and sigmaCausal > 0
+
 // ---- state machine -----------------------------------------------------
 // 0 = idle, 1 = watching a breakout for its retrace + confirm, 2 = in a trade.
 // Exactly one of the three blocks below runs per bar, chosen by the
@@ -188,9 +205,37 @@ bool sellSignal = false
 // that has to be true for a breakout to exist at all, with nothing else
 // (trend filter, retrace state, whether a trade is already open) able
 // to hide it. See the DEBUG plots below.
-ready      = not na(hiPrev) and not na(loPrev) and not na(sigmaCausal) and sigmaCausal > 0
+ready      = not na(hiPrev) and not na(loPrev) and floorReady
 breakoutUp = ready and close > hiPrev
 breakoutDn = ready and close < loPrev
+
+// ---- DEBUG: a running count, so "any breakouts at all?" is one number
+// to read instead of a visual scan for tiny triangles across the whole
+// chart. If barsReady stays 0 at the last bar, `ready` never turns true
+// at all (not enough history, or hiPrev/loPrev/sigmaCausal stuck na) -
+// check barsProcessed too: if that's also small, the chart simply hasn't
+// loaded enough bars yet. If barsReady is large but breakoutsSeen is 0,
+// `ready` works but close never clears hiPrev/loPrev on this symbol/
+// timeframe/lookback - try a shorter "Breakout lookback" input.
+var int barsProcessed = 0
+var int barsReady     = 0
+var int breakoutsUp   = 0
+var int breakoutsDn   = 0
+barsProcessed += 1
+if ready
+    barsReady += 1
+if breakoutUp
+    breakoutsUp += 1
+if breakoutDn
+    breakoutsDn += 1
+if showDebug and barstate.islast
+    label.new(bar_index, low,
+         "DEBUG counts (whole chart)\nbars processed: " + str.tostring(barsProcessed) +
+         "\nbars with ready=true: " + str.tostring(barsReady) +
+         "\nup-breakouts seen: " + str.tostring(breakoutsUp) +
+         "\ndown-breakouts seen: " + str.tostring(breakoutsDn),
+         style = label.style_label_up, color = color.new(color.navy, 0),
+         textcolor = color.white, size = size.normal)
 
 if state == 0
     // ---- gates 1 + 2: look for a fresh breakout ----
@@ -248,7 +293,7 @@ else if state == 1
             // ---- CONFIRMED ENTRY: the bar this script marks BUY / SELL on ----
             entryPx = close
             structD = math.abs(entryPx - wRetraceExtreme)
-            floorD  = stopMinSigma * sigmaCausal * entryPx
+            floorD  = floorPrice
             stopD   = math.max(structD, floorD)
             stop0   = entryPx - wSide * stopD
             target  = entryPx + wSide * stopD * rr
@@ -337,6 +382,8 @@ plotchar(showDebug and breakoutDn, "raw down-break", "▼", location.abovebar, c
 plot(showDebug ? hiPrev : na, "DEBUG hiPrev", display = display.data_window)
 plot(showDebug ? loPrev : na, "DEBUG loPrev", display = display.data_window)
 plot(showDebug ? sigmaCausal : na, "DEBUG sigmaCausal", display = display.data_window)
+plot(showDebug ? atrCausal : na, "DEBUG atrCausal", display = display.data_window)
+plot(showDebug ? floorPrice : na, "DEBUG floorPrice (active stop-floor method)", display = display.data_window)
 plot(showDebug ? (ready ? 1 : 0) : na, "DEBUG ready (1/0)", display = display.data_window)
 plot(showDebug ? state : na, "DEBUG state (0 idle/1 watching/2 in trade)", display = display.data_window)
 plot(showDebug ? cumVolTotal : na, "DEBUG cumulative volume so far", display = display.data_window)
