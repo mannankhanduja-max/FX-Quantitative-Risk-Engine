@@ -82,6 +82,11 @@ def main() -> int:
                     default=config.RETRACE_MAX_BARS)
     ap.add_argument("--min-fraction", type=float,
                     default=config.RETRACE_MIN_FRACTION)
+    ap.add_argument("--max-fraction", type=float,
+                    default=config.RETRACE_MAX_FRACTION,
+                    help="retrace tolerance before a breakout is treated as "
+                        "failed rather than pulling back; SetupConfig "
+                        "rejects anything above 2.0 as 'not a retracement'")
     ap.add_argument("--stop-min-sigma", type=float,
                     default=config.BREAKOUT_STOP_MIN_SIGMA,
                     help="floor on the stop distance, in EWMA sigmas")
@@ -96,7 +101,7 @@ def main() -> int:
         lookback=args.lookback,
         retrace_max_bars=args.retrace_max_bars,
         min_fraction=args.min_fraction,
-        max_fraction=config.RETRACE_MAX_FRACTION,
+        max_fraction=args.max_fraction,
         stop_min_sigma=args.stop_min_sigma,
         use_trend_filter=not args.no_trend,
     )
@@ -104,6 +109,7 @@ def main() -> int:
     print("Breakout -> retracement -> resumption, "
           f"{args.rr:g}:1, {args.cost_bp:g}bp per side, {args.interval} bars")
     print(f"  trend filter    {'VWAP/EMA bias' if cfg.use_trend_filter else 'OFF'}")
+    print(f"  retrace band    {args.min_fraction:.0%}-{args.max_fraction:.0%} of impulse")
     print(f"  stop floor      {args.stop_min_sigma:g} sigma")
     print(f"  breakeven stop  "
           f"{'OFF (control)' if args.no_breakeven else f'{args.be_pips:g} pips'}")
