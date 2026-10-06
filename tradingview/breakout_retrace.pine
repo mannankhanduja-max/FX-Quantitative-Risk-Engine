@@ -358,20 +358,26 @@ else if state == 2
             tBeArmed := true
             tStop := tEntry
 
-// ---- DEBUG label: drawn here, after the state machine, so it reflects
-// anything that happened on this exact bar too. If entriesCount is 0
-// while armedCount and breakoutsUp/Dn are large, the bug is gate 4
-// (CONFIRM: price must close back beyond the breakout bar's own high/
-// low after arming) - try widening "Retrace window (bars)" or check
-// whether `useTrendFilter` is filtering out every armed setup (toggle
-// it off to test). If armedCount is 0 while breakoutsUp/Dn are large,
-// the bug is gate 3 (RETRACE: price never pulls back into the
-// minFraction..maxFraction band before invalidating) - try widening
-// "Retrace max fraction of impulse".
+// ---- DEBUG table: pinned to the left edge of the chart pane (screen
+// position, not a bar coordinate), so it stays put as you scroll/zoom
+// instead of drifting into the price action the way a bar-anchored
+// label does. Updated every bar so it's always current, not just at
+// barstate.islast - a table redraws cheaply, unlike a label.
+// If entriesCount is 0 while armedCount and breakoutsUp/Dn are large,
+// the bug is gate 4 (CONFIRM: price must close back beyond the
+// breakout bar's own high/low after arming) - try widening "Retrace
+// window (bars)" or check whether `useTrendFilter` is filtering out
+// every armed setup (toggle it off to test). If armedCount is 0 while
+// breakoutsUp/Dn are large, the bug is gate 3 (RETRACE: price never
+// pulls back into the minFraction..maxFraction band before
+// invalidating) - try widening "Retrace max fraction of impulse".
 closedTrades = tpCount + slCount + beCount + toCount
 winRateTxt   = closedTrades > 0 ? str.tostring((tpCount + beCount) / closedTrades * 100.0, "#.#") + "%" : "n/a"
-if showDebug and barstate.islast
-    label.new(bar_index, low,
+var table debugTable = table.new(position.middle_left, 1, 1,
+     bgcolor = color.new(color.navy, 0), border_width = 1,
+     border_color = color.new(color.white, 70))
+if showDebug
+    table.cell(debugTable, 0, 0,
          "DEBUG counts (whole chart)\nbars processed: " + str.tostring(barsProcessed) +
          "\nbars with ready=true: " + str.tostring(barsReady) +
          "\nup-breakouts seen: " + str.tostring(breakoutsUp) +
@@ -383,8 +389,8 @@ if showDebug and barstate.islast
          "\nTP: " + str.tostring(tpCount) + "  SL: " + str.tostring(slCount) +
          "  BE: " + str.tostring(beCount) + "  timeout: " + str.tostring(toCount) +
          "\nwin rate (TP+BE / closed): " + winRateTxt,
-         style = label.style_label_up, color = color.new(color.navy, 0),
-         textcolor = color.white, size = size.normal)
+         text_color = color.white, text_size = size.normal,
+         text_halign = text.align_left)
 
 // ---- bracket lines while a trade is open -------------------------------
 var line entryLine   = na
