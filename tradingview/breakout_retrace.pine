@@ -373,7 +373,7 @@ else if state == 2
 // invalidating) - try widening "Retrace max fraction of impulse".
 closedTrades = tpCount + slCount + beCount + toCount
 winRateTxt   = closedTrades > 0 ? str.tostring((tpCount + beCount) / closedTrades * 100.0, "#.#") + "%" : "n/a"
-var table debugTable = table.new(position.middle_left, 1, 1,
+var table debugTable = table.new(position.top_right, 1, 1,
      bgcolor = color.new(color.navy, 0), border_width = 1,
      border_color = color.new(color.white, 70))
 if showDebug
