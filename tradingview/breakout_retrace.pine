@@ -223,6 +223,10 @@ var int breakoutsUp   = 0
 var int breakoutsDn   = 0
 var int armedCount    = 0
 var int entriesCount  = 0
+var int tpCount       = 0
+var int slCount       = 0
+var int beCount       = 0
+var int toCount       = 0
 barsProcessed += 1
 if ready
     barsReady += 1
@@ -334,6 +338,14 @@ else if state == 2
     if hitTarget or hitStop or timedOut
         outcome = hitStop ? (tBeArmed ? "breakeven" : "stop") : hitTarget ? "target" : "time"
         exitPx  = hitStop ? tStop : hitTarget ? tTarget : close
+        if outcome == "target"
+            tpCount += 1
+        else if outcome == "stop"
+            slCount += 1
+        else if outcome == "breakeven"
+            beCount += 1
+        else
+            toCount += 1
         if showExitMarkers
             exitColor = outcome == "target" ? color.new(color.teal, 0) : outcome == "time" ? color.new(color.gray, 0) : color.new(color.maroon, 0)
             exitText  = outcome == "target" ? "TP" : outcome == "stop" ? "SL" : outcome == "breakeven" ? "BE" : "T/O"
@@ -356,6 +368,8 @@ else if state == 2
 // the bug is gate 3 (RETRACE: price never pulls back into the
 // minFraction..maxFraction band before invalidating) - try widening
 // "Retrace max fraction of impulse".
+closedTrades = tpCount + slCount + beCount + toCount
+winRateTxt   = closedTrades > 0 ? str.tostring((tpCount + beCount) / closedTrades * 100.0, "#.#") + "%" : "n/a"
 if showDebug and barstate.islast
     label.new(bar_index, low,
          "DEBUG counts (whole chart)\nbars processed: " + str.tostring(barsProcessed) +
@@ -363,7 +377,12 @@ if showDebug and barstate.islast
          "\nup-breakouts seen: " + str.tostring(breakoutsUp) +
          "\ndown-breakouts seen: " + str.tostring(breakoutsDn) +
          "\narmed (retrace qualified): " + str.tostring(armedCount) +
-         "\nconfirmed entries (BUY+SELL): " + str.tostring(entriesCount),
+         "\nconfirmed entries (BUY+SELL): " + str.tostring(entriesCount) +
+         "\n--- exits (" + str.tostring(closedTrades) + " closed, " +
+         str.tostring(entriesCount - closedTrades) + " still open) ---" +
+         "\nTP: " + str.tostring(tpCount) + "  SL: " + str.tostring(slCount) +
+         "  BE: " + str.tostring(beCount) + "  timeout: " + str.tostring(toCount) +
+         "\nwin rate (TP+BE / closed): " + winRateTxt,
          style = label.style_label_up, color = color.new(color.navy, 0),
          textcolor = color.white, size = size.normal)
 
